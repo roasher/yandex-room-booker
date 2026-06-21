@@ -1,0 +1,220 @@
+---
+description: Java code generation standards and testing guidelines for hexagonal architecture
+globs: **/*.java
+alwaysApply: false
+---
+
+# Java Generation Rules
+
+## Role
+
+You are senior developer, obsessed with clean and fully tested code.
+
+## Code Structure
+
+You should use hexagonal architecture packages pattern. 
+The project structure should follow this pattern:
+
+```
+src/
+├── adapter/
+│   ├── in/          # Entry points (incoming adapters)
+│   │   ├── grpc/    # gRPC controllers/endpoints
+│   │   ├── rest/    # REST controllers
+│   │   ├── schedule/ # @Scheduled (and Shedlock) triggers — delegate to domain use cases only
+│   │   └── ...      # Other entry point adapters (e.g. kafka, messaging)
+│   └── out/         # Outgoing adapters (external resources)
+│       ├── database/ # Database repositories implementations
+│       ├── client/   # External service clients
+│       └── ...       # Other outgoing adapter¡s
+├── domain/          # Core business logic
+│   ├── service/     # Domain services
+│   ├── model/       # Domain models/entities
+│   └── [UseCase classes directly here, e.g., GetAllTemplatesUseCase.java]
+└── config/          # Configuration classes and files
+```
+
+**Adapter package:**
+- **`adapter/in/`**: Contains all entry points for the application. These are adapters that receive external requests (e.g., gRPC endpoints, REST controllers, message queue listeners, **scheduled jobs** under `schedule/` that only invoke use cases).
+- **`adapter/out/`**: Contains all outgoing adapters that interact with external resources. These are adapters that call external systems (e.g., database repository implementations, external API clients, message queue publishers).
+
+**Domain package:**
+- Contains all business logic, services, use cases (directly in domain package, not in subfolder), and domain models. This is the core of the application and should not depend on adapters.
+
+**Config package:**
+- Contains Spring configuration classes, bean definitions, and other configuration files.
+
+## Guidelines
+
+When you are generating java code you should:
+- Make minimum change possible to complete task
+- When you are generating POJO's, use lombok annotations to avoid boilerplate getters, setters, constructors creation if possible
+- Prefer `@RequiredArgsConstructor` (Lombok) for dependency injection and `final` field initialization whenever it fits; avoid hand-written constructors that only assign fields
+- Use rows.getFirst() instead of rows.get(0) if possible
+- Use @Accessors(chain = true) from lombok.experimental.Accessors on top of domain classes, so object construction could be done in one call
+- If you are generating repository class, it should return domain object, not protobuf object
+- Use case classes should return domain objects, and the conversion to protobuf should happen in the gRPC adapter layer
+- Note that protobuf class fields can not be null - there is no need to have null check
+- Annotate every field and method parameter that may be `null` with `@Nullable` (`import org.jspecify.annotations.Nullable;`); unannotated reference types are treated as non-null. Skip protobuf fields (never null) and test code.
+
+**Configuration defaults (Spring Boot):**
+- Do not put tunable defaults in Java: no `@Value("${key:DEFAULT}")`, no literal config fallbacks.
+- Put defaults in `application.yml` (including per-profile files) and in test `application.yml` when tests require the property.
+- Inject resolved values only, e.g. `@Value("${key}")` or `@ConfigurationProperties` backed by YAML.
+
+**Code Style:**
+- Respect checkstyle rules in /checkstyle.xml
+- Maximum line length: 120 characters (as configured in checkstyle.xml)
+- Prefer multi-line builder pattern instead of one-liners for better readability
+
+Example:
+```java
+// Instead of this:
+AssistantsOutProto.Error.newBuilder().setCode(failure.message()).setMessage(failure.message()).build();
+
+// Do this:
+AssistantsOutProto.Error.newBuilder()
+    .setCode(failure.message())
+    .setMessage(failure.message())
+    .build();
+```
+
+**Comments and Javadoc:**
+- Do not edit or remove existing comments/Javadoc unless they are wrong or contradict the new code
+- Add Javadoc on public classes, methods, and fields that form the module API
+- Add brief comments only for non-obvious logic (invariants, external system contracts, multi-step algorithms)
+- Do not restate the code; do not document volatile implementation details (internal SQL shape, tuple field order) unless required for safety or a stable contract
+- Prefer stable “why/what” wording over step-by-step narration of the current implementation
+
+**Logging:**
+- When you log something, use @Slf4j annotation with log methods instead of System.out.print
+- When you logging something there is no need to check logging level
+
+Example:
+```java
+// Instead of this:
+if (log.isDebugEnabled()) {
+    log.debug("Talk IDs to process: {}", talkIds);
+}
+
+// Do this:
+log.debug("Talk IDs to process: {}", talkIds);
+```
+
+## Commons for new projects
+
+- use Java 21
+- use spring boot
+- use lombok
+- use maven
+
+## Tests
+
+### Global Approach
+
+There should be two types of tests: integration and unit.
+
+- **Unit tests**: Should have naming `{class_name}Test.java` and in this test do not use spring context or IntegrationTest inheritance: in that type of tests you can only use class being tested and it's fields as mocks.
+
+- **Integration tests**: 
+  - Should use spring context and should be present in integration folder
+  - Should test the app as a black box
+  - Shouldn't cover all corner cases: usually it is enough to test happy path
+  
+  **Integration test common steps:**
+  
+  1. **Test Preparation:**
+     - If app would call external service via API in tested scenario:
+       - Use mock server like `grpcMock` and stub that call to be sure that call has expected parameters
+       - *Exception*: if it is too hard to stub server calls, it is possible to use `@MockitoBean` to mock external server client
+       - You can use `@MockitoBean` annotation on beans in `adapter.out` package only
+     - You can interact with the app only via API calls or input messages to move it to desired prepared state
+     - Do not use repository objects for test preparation
+     - You can call one integration test from another for preparation
+  
+  2. **Trigger Behavior:**
+     - Interact with the app to trigger some behavior
+     - Interaction should be done via API calls or input messages only
+  
+  3. **Verify Results:**
+     - Check that scenario worked as expected via API calls to app or asserting particular message emitted by the app
+  
+  **Repository Beans:**
+  - Repository beans might be present only in a base integration class: and only for `deleteAll()` method call prior each test
+  - Better approach is to create for each test some random resources like projects, spaces, connections, etc: random string with prefix for each test to avoid test collision
+
+### Other
+
+- Use `-Dprotobuf.skip=true` when run tests via mvn if protobuf field does not change
+
+- Integration and unit tests should ALWAYS use single object comparison instead of field-by-field comparison. Never use multiple assertThat statements for individual fields. Allowed whole-object assertions: `isEqualTo`, `containsExactly`, `containsExactlyInAnyOrder`, `containsExactlyElementsOf`, `containsExactlyInAnyOrderElementsOf`.
+
+For example instead of this:
+
+```java
+List<TalkIndexedState> rows = getRowsFromDb(connectionId);
+
+assertThat(rows).hasSize(1);
+TalkIndexedState actual = rows.getFirst();
+assertThat(actual.talkId()).isEqualTo(talkId);
+assertThat(actual.properties()).containsExactlyInAnyOrderElementsOf(List.of(
+    new TalkProperty("talk_project_ids", List.of("pr1", "pr2"), FieldType.ARRAY_STRING),
+    new TalkProperty("talk_assistant_string_ch_all", Map.of(
+        "field1", "test value",
+        "field2", "another value"
+    ), FieldType.MAP_STRING_STRING)
+));
+assertThat(actual.version()).isEqualTo(instant);
+assertThat(actual.isDeleted()).isEqualTo(false);
+```
+
+do this:
+
+```java
+// Expected
+TalkIndexedState expected = new TalkIndexedState(
+    talkId,
+    List.of(
+        new TalkProperty("talk_project_ids", List.of("pr1", "pr2"), FieldType.ARRAY_STRING),
+        new TalkProperty("talk_assistant_string_ch_all", Map.of(
+            "field1", "test value",
+            "field2", "another value"
+        ), FieldType.MAP_STRING_STRING)
+    ),
+    instant,
+    false
+);
+
+// When
+List<TalkIndexedState> actualRows = getRowsFromDb(connectionId);
+
+// Then
+assertThat(actualRows).isEqualTo(List.of(expected));
+```
+
+- Use test naming convention: generated test name should start with "should"
+
+- Use @InjectMocks in unit tests where possible
+
+Example:
+```java
+// Instead of this:
+private GetAllTemplatesUseCase getAllTemplatesUseCase;
+
+@BeforeEach
+void setUp() {
+    getAllTemplatesUseCase = new GetAllTemplatesUseCase(fileTemplateRepository);
+}
+
+// Do this:
+@InjectMocks
+private GetAllTemplatesUseCase getAllTemplatesUseCase;
+```
+
+- Use static imports: instead of `org.mockito.Mockito.mock(...)` use `mock(...)`
+
+- Do not use @DataMongoTest in tests - use full spring context instead
+
+- Do not use @DirtiesContext in tests - new context is an expensive operation, clean all repositories instead
+
+- Do not use `Instant.now()` use `Instant.now(clock)` instead, where clock is a Bean. In test configuration it should be `Clock.fixed(...)` to not bother about timestamp comparison
