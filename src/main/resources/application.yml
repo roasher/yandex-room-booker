@@ -1,0 +1,13 @@
+spring:
+  application:
+    name: yandex-room-booker
+
+room-booker:
+  enabled: false
+  api-base-url: https://cloud-api.yandex.net
+  time-zone: Europe/Moscow
+  meeting-name: ""
+  room-email: ""
+  start: ""
+  end: ""
+  oauth-token: ${YANDEX_CALENDAR_OAUTH_TOKEN:}

@@ -1,0 +1,3 @@
+room-booker:
+  enabled: false
+  oauth-token: test-token
