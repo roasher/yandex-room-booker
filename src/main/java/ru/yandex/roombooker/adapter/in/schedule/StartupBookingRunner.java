@@ -1,7 +1,6 @@
 package ru.yandex.roombooker.adapter.in.schedule;
 
 import java.time.LocalDateTime;
-import java.time.format.DateTimeParseException;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -10,6 +9,7 @@ import org.springframework.boot.ApplicationRunner;
 import org.springframework.stereotype.Component;
 import ru.yandex.roombooker.config.RoomBookerProperties;
 import ru.yandex.roombooker.domain.BookMeetingRoomUseCase;
+import ru.yandex.roombooker.domain.RoomResolver;
 import ru.yandex.roombooker.domain.model.BookingRequest;
 import ru.yandex.roombooker.domain.model.CreatedEvent;
 
@@ -22,6 +22,7 @@ import ru.yandex.roombooker.domain.model.CreatedEvent;
 public class StartupBookingRunner implements ApplicationRunner {
 
     private final RoomBookerProperties properties;
+    private final RoomResolver roomResolver;
     private final BookMeetingRoomUseCase bookMeetingRoomUseCase;
 
     @Override
@@ -32,11 +33,25 @@ public class StartupBookingRunner implements ApplicationRunner {
         }
 
         validateProperties();
+        RoomResolver.ResolvedRoom room = roomResolver.resolve(properties.effectiveRoomReference());
+        LocalDateTime start = properties.bookingStart();
+        LocalDateTime end = properties.bookingEnd();
+
+        log.info(
+                "Using room {} ({}) -> {}, slot {}–{} ({} min)",
+                room.displayName(),
+                room.exchange(),
+                room.email(),
+                start,
+                end,
+                properties.bookingDuration().toMinutes()
+        );
+
         BookingRequest request = BookingRequest.builder()
                 .meetingName(properties.meetingName())
-                .roomEmail(properties.roomEmail())
-                .start(parseDateTime(properties.start()))
-                .end(parseDateTime(properties.end()))
+                .roomEmail(room.email())
+                .start(start)
+                .end(end)
                 .timeZone(properties.timeZone())
                 .build();
 
@@ -51,9 +66,14 @@ public class StartupBookingRunner implements ApplicationRunner {
 
     private void validateProperties() {
         requireNonBlank(properties.meetingName(), "room-booker.meeting-name");
-        requireNonBlank(properties.roomEmail(), "room-booker.room-email");
+        requireNonBlank(properties.effectiveRoomReference(), "room-booker.room (or room-booker.room-email)");
         requireNonBlank(properties.start(), "room-booker.start");
-        requireNonBlank(properties.end(), "room-booker.end");
+        if (properties.duration() == null || properties.duration().isBlank()) {
+            throw new IllegalStateException(
+                    "Missing or invalid property: room-booker.duration (e.g. 90m, 1h, 1h30m)"
+            );
+        }
+        properties.bookingDuration();
         requireNonBlank(properties.oauthToken(), "YANDEX_CALENDAR_OAUTH_TOKEN");
     }
 
@@ -63,14 +83,4 @@ public class StartupBookingRunner implements ApplicationRunner {
         }
     }
 
-    private static LocalDateTime parseDateTime(String value) {
-        try {
-            return LocalDateTime.parse(value);
-        } catch (DateTimeParseException exception) {
-            throw new IllegalStateException(
-                    "Invalid datetime '%s', expected ISO-8601 like 2026-06-22T14:00:00".formatted(value),
-                    exception
-            );
-        }
-    }
 }

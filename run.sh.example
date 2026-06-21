@@ -5,6 +5,9 @@ set -euo pipefail
 # OAuth app: https://oauth.yandex-team.ru (scopes: calendar:events.write or calendar:write_all)
 # Token URL: https://oauth.yandex-team.ru/authorize?client_id=<CLIENT_ID>&response_type=token
 # Docs: https://docs.yandex-team.ru/calendar-api
+#
+# Rooms: see src/main/resources/rooms.yml (e.g. stroganov-yoga, mamontov-dance)
+# Duration: 90m, 1h, 1h30m (end = start + duration)
 
 export YANDEX_CALENDAR_OAUTH_TOKEN="y1_..."
 
@@ -12,10 +15,10 @@ export SPRING_APPLICATION_JSON="$(cat <<EOF
 {
   "room-booker": {
     "enabled": true,
-    "meeting-name": "Team sync",
-    "room-email": "cr_000004170@yandex-team.ru",
+    "meeting-name": "D",
+    "room": "stroganov-yoga",
     "start": "2026-06-22T14:00:00",
-    "end": "2026-06-22T15:00:00"
+    "duration": "1h30m"
   }
 }
 EOF

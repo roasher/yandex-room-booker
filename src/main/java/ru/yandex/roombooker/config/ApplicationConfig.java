@@ -9,7 +9,7 @@ import org.springframework.web.client.RestClient;
  * Spring beans for HTTP clients and configuration binding.
  */
 @Configuration
-@EnableConfigurationProperties(RoomBookerProperties.class)
+@EnableConfigurationProperties({RoomBookerProperties.class, RoomCatalogProperties.class})
 public class ApplicationConfig {
 
     @Bean
