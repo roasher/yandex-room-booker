@@ -21,7 +21,10 @@ class RoomBookerPropertiesTest {
                 "2026-06-22T14:00:00",
                 "1h30m",
                 "token",
-                "30s"
+                "30s",
+                2,
+                "1s",
+                2
         );
 
         assertThat(properties.bookingStart()).isEqualTo(LocalDateTime.parse("2026-06-22T14:00:00"));

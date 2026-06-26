@@ -20,7 +20,10 @@ public record RoomBookerProperties(
         String start,
         String duration,
         String oauthToken,
-        String bookingOpenBuffer
+        String bookingOpenBuffer,
+        int bookingMaxRetries,
+        String bookingRetryBackoff,
+        double bookingRetryMultiplier
 ) {
     public String effectiveRoomReference() {
         if (room != null && !room.isBlank()) {
@@ -46,6 +49,13 @@ public record RoomBookerProperties(
             return Duration.ZERO;
         }
         return DurationParsing.parse(bookingOpenBuffer);
+    }
+
+    public Duration resolvedBookingRetryBackoff() {
+        if (bookingRetryBackoff == null || bookingRetryBackoff.isBlank()) {
+            return Duration.ZERO;
+        }
+        return DurationParsing.parse(bookingRetryBackoff);
     }
 
     private static LocalDateTime parseDateTime(String value) {

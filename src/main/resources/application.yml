@@ -14,4 +14,7 @@ room-booker:
   start: ""
   duration: ""
   oauth-token: ${YANDEX_CALENDAR_OAUTH_TOKEN:}
-  booking-open-buffer: 30s
+  booking-open-buffer: 0s
+  booking-max-retries: 2
+  booking-retry-backoff: 1s
+  booking-retry-multiplier: 2
