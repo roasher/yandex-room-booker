@@ -5,6 +5,7 @@ import java.time.format.DateTimeFormatter;
 import java.util.List;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -21,7 +22,7 @@ import ru.yandex.roombooker.domain.model.BookingRequest;
 import ru.yandex.roombooker.domain.model.CreatedEvent;
 
 /**
- * Client for Yandex Calendar Public API.
+ * Client for Yandex Calendar Public API (cloud-api.yandex.net).
  *
  * @see <a href="https://docs.yandex-team.ru/calendar-api">API Календаря</a>
  */
@@ -81,21 +82,15 @@ public class CalendarPublicApiClient implements CalendarEventGateway {
         }
     }
 
-    private <T> T postJson(String oauthToken, String uri, String jsonBody, Class<T> responseType, Object... uriVariables) {
-        RestClient.RequestBodySpec request = calendarRestClient.post()
-                .uri(uri, uriVariables)
+    private <T> T postJson(String oauthToken, String uri, String jsonBody, Class<T> responseType) {
+        log.debug("Calendar API request: POST {} body={}", uri, jsonBody);
+
+        T response = calendarRestClient.post()
+                .uri(uri)
                 .contentType(MediaType.APPLICATION_JSON)
                 .header("Authorization", "OAuth " + oauthToken)
-                .body(jsonBody);
-
-        if (responseType == Void.class) {
-            request.retrieve()
-                    .onStatus(HttpStatusCode::isError, this::throwApiException)
-                    .toBodilessEntity();
-            return null;
-        }
-
-        T response = request.retrieve()
+                .body(jsonBody)
+                .retrieve()
                 .onStatus(HttpStatusCode::isError, this::throwApiException)
                 .body(responseType);
 
@@ -108,13 +103,58 @@ public class CalendarPublicApiClient implements CalendarEventGateway {
     private void throwApiException(org.springframework.http.HttpRequest httpRequest,
                                    org.springframework.http.client.ClientHttpResponse response) {
         try {
+            int status = response.getStatusCode().value();
             String body = new String(response.getBody().readAllBytes());
+            logApiError(httpRequest, status, response.getHeaders(), body);
             throw new CalendarApiException(
-                    "Calendar API request failed: HTTP %s %s".formatted(response.getStatusCode().value(), body)
+                    "Calendar API request failed: HTTP %s %s".formatted(status, body)
             );
         } catch (java.io.IOException exception) {
+            log.error(
+                    "Calendar API request failed: {} {} (could not read response body)",
+                    httpRequest.getMethod(),
+                    httpRequest.getURI(),
+                    exception
+            );
             throw new CalendarApiException("Calendar API request failed", exception);
         }
+    }
+
+    private void logApiError(org.springframework.http.HttpRequest httpRequest,
+                             int status,
+                             org.springframework.http.HttpHeaders responseHeaders,
+                             String body) {
+        log.error(
+                "Calendar API error: {} {} -> HTTP {}, response headers={}, body={}",
+                httpRequest.getMethod(),
+                httpRequest.getURI(),
+                status,
+                responseHeaders,
+                body
+        );
+        if (body == null || body.isBlank()) {
+            log.error("Calendar API returned empty error body for HTTP {}", status);
+            return;
+        }
+        try {
+            JsonNode root = objectMapper.readTree(body);
+            log.error(
+                    "Calendar API error details: error={}, description={}, message={}",
+                    textField(root, "error"),
+                    textField(root, "description"),
+                    textField(root, "message")
+            );
+        } catch (JsonProcessingException exception) {
+            log.error("Calendar API error body is not JSON: {}", body);
+        }
+    }
+
+    private static String textField(JsonNode root, String fieldName) {
+        JsonNode field = root.get(fieldName);
+        if (field == null || field.isNull()) {
+            return null;
+        }
+        return field.asText();
     }
 
     private String resolveOAuthToken() {

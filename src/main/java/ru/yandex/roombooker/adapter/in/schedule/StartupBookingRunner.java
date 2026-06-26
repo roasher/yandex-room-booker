@@ -9,12 +9,14 @@ import org.springframework.boot.ApplicationRunner;
 import org.springframework.stereotype.Component;
 import ru.yandex.roombooker.config.RoomBookerProperties;
 import ru.yandex.roombooker.domain.BookMeetingRoomUseCase;
+import ru.yandex.roombooker.domain.BookingSchedulePlanner;
+import ru.yandex.roombooker.domain.BookingWaiter;
 import ru.yandex.roombooker.domain.RoomResolver;
 import ru.yandex.roombooker.domain.model.BookingRequest;
 import ru.yandex.roombooker.domain.model.CreatedEvent;
 
 /**
- * Runs automatic room booking once when the application starts.
+ * Waits until the room booking window opens, then books the requested slot once on startup.
  */
 @Slf4j
 @Component
@@ -24,9 +26,11 @@ public class StartupBookingRunner implements ApplicationRunner {
     private final RoomBookerProperties properties;
     private final RoomResolver roomResolver;
     private final BookMeetingRoomUseCase bookMeetingRoomUseCase;
+    private final BookingSchedulePlanner bookingSchedulePlanner;
+    private final BookingWaiter bookingWaiter;
 
     @Override
-    public void run(ApplicationArguments args) {
+    public void run(ApplicationArguments args) throws InterruptedException {
         if (!properties.enabled()) {
             log.info("Room booker is disabled (room-booker.enabled=false)");
             return;
@@ -37,6 +41,12 @@ public class StartupBookingRunner implements ApplicationRunner {
         LocalDateTime start = properties.bookingStart();
         LocalDateTime end = properties.bookingEnd();
 
+        bookingSchedulePlanner.validateDuration(
+                properties.bookingDuration(),
+                room.catalogEntry(),
+                room.displayName()
+        );
+
         log.info(
                 "Using room {} ({}) -> {}, slot {}–{} ({} min)",
                 room.displayName(),
@@ -46,6 +56,21 @@ public class StartupBookingRunner implements ApplicationRunner {
                 end,
                 properties.bookingDuration().toMinutes()
         );
+
+        LocalDateTime attemptAt = bookingSchedulePlanner.firstAttemptAt(
+                start,
+                room.catalogEntry(),
+                properties.resolvedBookingOpenBuffer()
+        );
+        if (attemptAt.isAfter(LocalDateTime.now())) {
+            log.info(
+                    "Slot {} is not bookable yet (bookable-ahead={}); first attempt scheduled at {}",
+                    start,
+                    room.catalogEntry() == null ? "n/a" : room.catalogEntry().bookableAhead(),
+                    attemptAt
+            );
+            bookingWaiter.waitUntil(attemptAt);
+        }
 
         BookingRequest request = BookingRequest.builder()
                 .meetingName(properties.meetingName())

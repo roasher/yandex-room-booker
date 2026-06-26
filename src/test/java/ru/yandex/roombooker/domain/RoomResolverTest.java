@@ -22,7 +22,9 @@ class RoomResolverTest {
                 new MeetingRoomEntry(
                         "Test room",
                         "cr_000004198",
-                        "Aurora"
+                        "Aurora",
+                        "90m",
+                        "3d"
                 )
         ));
         roomResolver = new RoomResolver(properties);

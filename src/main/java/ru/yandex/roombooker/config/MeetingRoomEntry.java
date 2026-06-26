@@ -6,6 +6,8 @@ package ru.yandex.roombooker.config;
 public record MeetingRoomEntry(
         String displayName,
         String exchange,
-        String office
+        String office,
+        String maxDuration,
+        String bookableAhead
 ) {
 }

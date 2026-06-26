@@ -4,6 +4,9 @@
 #   stroganov-yoga | stroganov-music | mamontov-dance | red-rose-yoga | aurora-music | lotte-music
 # Display names (examples):
 #   "Строганов — йога" | "Мамонтов — танцевальный зал" | "Лотте - музыкальная комната"
+#
+# max-duration: longest allowed booking (e.g. 90m, 1h30m)
+# bookable-ahead: how far before slot start booking opens (e.g. 3d = 72 hours)
 
 room-catalog:
   rooms:
@@ -11,28 +14,40 @@ room-catalog:
       display-name: "Строганов — йога"
       exchange: conf_st_yoga
       office: "БЦ Строганов"
+      max-duration: 90m
+      bookable-ahead: 3d
 
     stroganov-music:
       display-name: "Строганов — музыкальная комната"
       exchange: conf_st_muz
       office: "БЦ Строганов, 5 этаж"
+      max-duration: 90m
+      bookable-ahead: 3d
 
     mamontov-dance:
       display-name: "Мамонтов — танцевальный зал"
       exchange: conf_mm_5_15
       office: "БЦ Мамонтов, 5 этаж"
+      max-duration: 90m
+      bookable-ahead: 3d
 
     red-rose-yoga:
       display-name: "Красная Роза — йога"
       exchange: conf_rr_5_35_yoga
       office: "БЦ Красная Роза (КР-3), 5 этаж"
+      max-duration: 90m
+      bookable-ahead: 3d
 
     aurora-music:
       display-name: "Аврора — музыкальная комната"
       exchange: conf_aur_6a13
       office: "БЦ Аврора, 6A"
+      max-duration: 90m
+      bookable-ahead: 3d
 
     lotte-music:
       display-name: "Лотте - музыкальная комната"
       exchange: cr_000004198
       office: "БЦ Лотте"
+      max-duration: 90m
+      bookable-ahead: 3d

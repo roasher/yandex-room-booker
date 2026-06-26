@@ -6,7 +6,8 @@ set -euo pipefail
 # Token URL: https://oauth.yandex-team.ru/authorize?client_id=<CLIENT_ID>&response_type=token
 # Docs: https://docs.yandex-team.ru/calendar-api
 #
-# Rooms: see src/main/resources/rooms.yml (e.g. stroganov-yoga, mamontov-dance)
+# Rooms: see src/main/resources/rooms.yml (max-duration, bookable-ahead per room)
+# The bot waits until slot_start - bookable-ahead, then books automatically.
 # Duration: 90m, 1h, 1h30m (end = start + duration)
 
 export YANDEX_CALENDAR_OAUTH_TOKEN="y1_..."
