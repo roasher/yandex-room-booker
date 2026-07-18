@@ -65,7 +65,7 @@ public abstract class RoomBookerProperties {
 
     public Duration resolvedBookingOpenBuffer() {
         if (bookingOpenBuffer == null || bookingOpenBuffer.isBlank()) {
-            return Duration.ZERO;
+            return Duration.ofSeconds(60);
         }
         return DurationParsing.parse(bookingOpenBuffer);
     }

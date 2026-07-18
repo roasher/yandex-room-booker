@@ -24,8 +24,9 @@ room-booker:
   room-email: ""
   start: ""
   duration: ""
-  booking-open-buffer: 0s
-  booking-max-retries: 120
+  # Delay after bookable-ahead opens (Calendar often rejects exact open second / minute).
+  booking-open-buffer: 50s
+  booking-max-retries: 180
   booking-retry-backoff: 1s
   booking-retry-multiplier: 1
   # api mode
