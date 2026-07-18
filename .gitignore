@@ -33,3 +33,5 @@ build/
 .vscode/
 
 run.sh
+logs/
+!logs/.gitkeep

@@ -31,12 +31,13 @@ public class StartupBookingRunner implements ApplicationRunner {
 
     @Override
     public void run(ApplicationArguments args) throws InterruptedException {
-        if (!properties.enabled()) {
+        if (!properties.isEnabled()) {
             log.info("Room booker is disabled (room-booker.enabled=false)");
             return;
         }
 
         validateProperties();
+        log.info("Booking mode: {}", properties.bookingMode());
         RoomResolver.ResolvedRoom room = roomResolver.resolve(properties.effectiveRoomReference());
         LocalDateTime start = properties.bookingStart();
         LocalDateTime end = properties.bookingEnd();
@@ -73,11 +74,11 @@ public class StartupBookingRunner implements ApplicationRunner {
         }
 
         BookingRequest request = BookingRequest.builder()
-                .meetingName(properties.meetingName())
-                .roomEmail(room.email())
+                .meetingName(properties.getMeetingName())
+                .roomEmail(room.exchange())
                 .start(start)
                 .end(end)
-                .timeZone(properties.timeZone())
+                .timeZone(properties.getTimeZone())
                 .build();
 
         CreatedEvent created = bookMeetingRoomUseCase.execute(request);
@@ -90,16 +91,16 @@ public class StartupBookingRunner implements ApplicationRunner {
     }
 
     private void validateProperties() {
-        requireNonBlank(properties.meetingName(), "room-booker.meeting-name");
+        requireNonBlank(properties.getMeetingName(), "room-booker.meeting-name");
         requireNonBlank(properties.effectiveRoomReference(), "room-booker.room (or room-booker.room-email)");
-        requireNonBlank(properties.start(), "room-booker.start");
-        if (properties.duration() == null || properties.duration().isBlank()) {
+        requireNonBlank(properties.getStart(), "room-booker.start");
+        if (properties.getDuration() == null || properties.getDuration().isBlank()) {
             throw new IllegalStateException(
                     "Missing or invalid property: room-booker.duration (e.g. 90m, 1h, 1h30m)"
             );
         }
         properties.bookingDuration();
-        requireNonBlank(properties.oauthToken(), "YANDEX_CALENDAR_OAUTH_TOKEN");
+        properties.validateAuth();
     }
 
     private static void requireNonBlank(String value, String propertyName) {

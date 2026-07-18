@@ -9,14 +9,15 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.http.MediaType;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
+import ru.yandex.roombooker.adapter.out.client.dto.AddRoomsToEventRequest;
 import ru.yandex.roombooker.adapter.out.client.dto.CreateEventRequest;
 import ru.yandex.roombooker.adapter.out.client.dto.CreateEventResponse;
-import ru.yandex.roombooker.adapter.out.client.dto.EventParticipantRequest;
-import ru.yandex.roombooker.config.RoomBookerProperties;
+import ru.yandex.roombooker.config.ApiRoomBookerProperties;
 import ru.yandex.roombooker.domain.CalendarEventGateway;
 import ru.yandex.roombooker.domain.model.BookingRequest;
 import ru.yandex.roombooker.domain.model.CreatedEvent;
@@ -29,23 +30,21 @@ import ru.yandex.roombooker.domain.model.CreatedEvent;
 @Slf4j
 @Component
 @RequiredArgsConstructor
+@ConditionalOnProperty(prefix = "room-booker", name = "booking-mode", havingValue = "api", matchIfMissing = true)
 public class CalendarPublicApiClient implements CalendarEventGateway {
 
     private static final DateTimeFormatter API_DATE_TIME = DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm:ss");
 
     private final RestClient calendarRestClient;
-    private final RoomBookerProperties properties;
+    private final ApiRoomBookerProperties properties;
     private final ObjectMapper objectMapper;
 
     @Override
-    public CreatedEvent createMeetingWithRoom(BookingRequest request) {
-        String oauthToken = resolveOAuthToken();
-        String roomEmail = normalizeRoomEmail(request.roomEmail());
-
+    public CreatedEvent createEvent(BookingRequest request) {
         CreateEventResponse created = postJson(
-                oauthToken,
+                resolveOAuthToken(),
                 "/v1/calendar/events",
-                toJson(buildCreateEventRequest(request, roomEmail)),
+                toJson(buildCreateEventRequest(request)),
                 CreateEventResponse.class
         );
 
@@ -53,20 +52,30 @@ public class CalendarPublicApiClient implements CalendarEventGateway {
             throw new CalendarApiException("Calendar API returned empty event_id");
         }
 
-        log.info("Created calendar event {} with room {}", created.eventId(), roomEmail);
+        log.info("Created calendar event {} for meeting '{}'", created.eventId(), request.meetingName());
         return CreatedEvent.builder()
                 .eventId(created.eventId())
                 .summary(request.meetingName())
-                .roomEmail(roomEmail)
                 .build();
     }
 
-    private CreateEventRequest buildCreateEventRequest(BookingRequest request, String roomEmail) {
+    @Override
+    public void attachRoom(String eventId, String roomId) {
+        String normalizedRoomId = normalizeRoomId(roomId);
+        patchJson(
+                resolveOAuthToken(),
+                "/v1/calendar/events/" + eventId + "/rooms",
+                toJson(new AddRoomsToEventRequest(List.of(normalizedRoomId)))
+        );
+        log.info("Attached room {} to event {}", normalizedRoomId, eventId);
+    }
+
+    private CreateEventRequest buildCreateEventRequest(BookingRequest request) {
         return new CreateEventRequest(
                 request.meetingName(),
                 toEventDateTime(request.start(), request.timeZone()),
                 toEventDateTime(request.end(), request.timeZone()),
-                List.of(EventParticipantRequest.attendee(roomEmail))
+                null
         );
     }
 
@@ -98,6 +107,19 @@ public class CalendarPublicApiClient implements CalendarEventGateway {
             throw new CalendarApiException("Calendar API returned empty response for " + uri);
         }
         return response;
+    }
+
+    private void patchJson(String oauthToken, String uri, String jsonBody) {
+        log.debug("Calendar API request: PATCH {} body={}", uri, jsonBody);
+
+        calendarRestClient.patch()
+                .uri(uri)
+                .contentType(MediaType.APPLICATION_JSON)
+                .header("Authorization", "OAuth " + oauthToken)
+                .body(jsonBody)
+                .retrieve()
+                .onStatus(HttpStatusCode::isError, this::throwApiException)
+                .toBodilessEntity();
     }
 
     private void throwApiException(org.springframework.http.HttpRequest httpRequest,
@@ -158,18 +180,26 @@ public class CalendarPublicApiClient implements CalendarEventGateway {
     }
 
     private String resolveOAuthToken() {
-        if (properties.oauthToken() != null && !properties.oauthToken().isBlank()) {
-            return properties.oauthToken();
+        if (properties.getOauthToken() != null && !properties.getOauthToken().isBlank()) {
+            return properties.getOauthToken();
         }
         throw new CalendarApiException(
                 "OAuth token is not configured. Set YANDEX_CALENDAR_OAUTH_TOKEN or room-booker.oauth-token"
         );
     }
 
-    static String normalizeRoomEmail(String roomEmail) {
-        if (roomEmail.contains("@")) {
-            return roomEmail;
+    static String normalizeRoomId(String roomReference) {
+        int atIndex = roomReference.indexOf('@');
+        if (atIndex >= 0) {
+            return roomReference.substring(0, atIndex);
         }
-        return roomEmail + "@yandex-team.ru";
+        return roomReference;
+    }
+
+    static String normalizeRoomEmail(String roomId) {
+        if (roomId.contains("@")) {
+            return roomId;
+        }
+        return roomId + "@yandex-team.ru";
     }
 }

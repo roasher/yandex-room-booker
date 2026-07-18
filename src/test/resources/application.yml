@@ -1,4 +1,5 @@
 room-booker:
   enabled: false
+  booking-mode: api
   oauth-token: test-token
   booking-open-buffer: 30s

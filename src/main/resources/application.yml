@@ -1,3 +1,13 @@
+logging:
+  level:
+    root: INFO
+    ru.yandex.roombooker: DEBUG
+  file:
+    name: logs/spring.log
+  pattern:
+    # Keep plain timestamps in files; console uses Spring Boot's default colored pattern.
+    file: "%d{yyyy-MM-dd'T'HH:mm:ss.SSSXXX} %-5level [%thread] %logger{36} - %msg%n"
+
 spring:
   application:
     name: yandex-room-booker
@@ -6,15 +16,21 @@ spring:
 
 room-booker:
   enabled: false
-  api-base-url: https://cloud-api.yandex.net
+  # api = Public Calendar API; browser = web UI API. Selects ApiRoomBookerProperties or BrowserRoomBookerProperties.
+  booking-mode: ${ROOM_BOOKER_BOOKING_MODE:api}
   time-zone: Europe/Moscow
   meeting-name: ""
   room: ""
   room-email: ""
   start: ""
   duration: ""
-  oauth-token: ${YANDEX_CALENDAR_OAUTH_TOKEN:}
   booking-open-buffer: 0s
   booking-max-retries: 120
   booking-retry-backoff: 1s
   booking-retry-multiplier: 1
+  # api mode
+  api-base-url: https://cloud-api.yandex.net
+  oauth-token: ${YANDEX_CALENDAR_OAUTH_TOKEN:}
+  # browser mode (cookie-only auth; ckey/uid resolved at runtime)
+  web-base-url: https://calendar.yandex-team.ru
+  cookies: ${YANDEX_CALENDAR_COOKIES:}

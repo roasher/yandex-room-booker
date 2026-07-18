@@ -4,27 +4,46 @@ import java.time.Duration;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeParseException;
 
-import org.springframework.boot.context.properties.ConfigurationProperties;
+import lombok.Getter;
+import lombok.Setter;
 
 /**
- * Application settings for automatic room booking on startup.
+ * Shared settings for automatic room booking on startup.
+ *
+ * <p>Mode-specific auth/transport settings live in {@link ApiRoomBookerProperties}
+ * and {@link BrowserRoomBookerProperties}.
  */
-@ConfigurationProperties(prefix = "room-booker")
-public record RoomBookerProperties(
-        boolean enabled,
-        String apiBaseUrl,
-        String timeZone,
-        String meetingName,
-        String room,
-        String roomEmail,
-        String start,
-        String duration,
-        String oauthToken,
-        String bookingOpenBuffer,
-        int bookingMaxRetries,
-        String bookingRetryBackoff,
-        double bookingRetryMultiplier
-) {
+@Getter
+@Setter
+public abstract class RoomBookerProperties {
+
+    private boolean enabled;
+    private String timeZone;
+    private String meetingName;
+    private String room;
+    private String roomEmail;
+    private String start;
+    private String duration;
+    private String bookingOpenBuffer;
+    private int bookingMaxRetries;
+    private String bookingRetryBackoff;
+    private double bookingRetryMultiplier;
+
+    /**
+     * Returns the active booking transport: {@code api} or {@code browser}.
+     */
+    public abstract String bookingMode();
+
+    /**
+     * Base URL for the calendar HTTP client used in this mode.
+     */
+    public abstract String calendarBaseUrl();
+
+    /**
+     * Validates mode-specific auth settings (OAuth token, cookies, etc.).
+     */
+    public abstract void validateAuth();
+
     public String effectiveRoomReference() {
         if (room != null && !room.isBlank()) {
             return room;
@@ -66,6 +85,12 @@ public record RoomBookerProperties(
                     "Invalid datetime '%s', expected ISO-8601 like 2026-06-22T14:00:00".formatted(value),
                     exception
             );
+        }
+    }
+
+    protected static void requireNonBlank(String value, String propertyName) {
+        if (value == null || value.isBlank()) {
+            throw new IllegalStateException("Missing required property: " + propertyName);
         }
     }
 }

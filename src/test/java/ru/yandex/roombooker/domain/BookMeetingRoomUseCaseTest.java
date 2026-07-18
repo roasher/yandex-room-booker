@@ -2,6 +2,8 @@ package ru.yandex.roombooker.domain;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.Mockito.doNothing;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -32,10 +34,15 @@ class BookMeetingRoomUseCaseTest {
 
     private final BookingRequest request = BookingRequest.builder()
             .meetingName("Team sync")
-            .roomEmail("cr_000004170@yandex-team.ru")
+            .roomEmail("cr_000004170")
             .start(LocalDateTime.parse("2026-06-22T14:00:00"))
             .end(LocalDateTime.parse("2026-06-22T15:00:00"))
             .timeZone("Europe/Moscow")
+            .build();
+
+    private final CreatedEvent createdEvent = CreatedEvent.builder()
+            .eventId("event-123")
+            .summary("Team sync")
             .build();
 
     private final CreatedEvent expected = CreatedEvent.builder()
@@ -45,39 +52,63 @@ class BookMeetingRoomUseCaseTest {
             .build();
 
     @Test
-    void shouldDelegateBookingToCalendarGateway() {
-        when(calendarEventGateway.createMeetingWithRoom(request)).thenReturn(expected);
+    void shouldCreateEventOnceAndAttachRoom() {
+        when(calendarEventGateway.createEvent(request)).thenReturn(createdEvent);
+        when(calendarEventGateway.booksRoomDuringCreate()).thenReturn(false);
 
         CreatedEvent actual = bookMeetingRoomUseCase.execute(request);
 
         assertThat(actual).isEqualTo(expected);
-        verify(calendarEventGateway).createMeetingWithRoom(request);
+        verify(calendarEventGateway).createEvent(request);
+        verify(calendarEventGateway).attachRoom("event-123", "cr_000004170");
     }
 
     @Test
-    void shouldRetryAndSucceedAfterTransientFailure() {
-        when(properties.bookingMaxRetries()).thenReturn(2);
+    void shouldRetryRoomAttachWithoutCreatingNewEvents() {
+        when(calendarEventGateway.createEvent(request)).thenReturn(createdEvent);
+        when(calendarEventGateway.booksRoomDuringCreate()).thenReturn(false);
+        when(properties.getBookingMaxRetries()).thenReturn(2);
         when(properties.resolvedBookingRetryBackoff()).thenReturn(Duration.ZERO);
-        when(calendarEventGateway.createMeetingWithRoom(request))
-                .thenThrow(new RuntimeException("HTTP 500"))
-                .thenReturn(expected);
+        doThrow(new RuntimeException("HTTP 500"))
+                .doNothing()
+                .when(calendarEventGateway).attachRoom("event-123", "cr_000004170");
 
         CreatedEvent actual = bookMeetingRoomUseCase.execute(request);
 
         assertThat(actual).isEqualTo(expected);
-        verify(calendarEventGateway, times(2)).createMeetingWithRoom(request);
+        verify(calendarEventGateway, times(1)).createEvent(request);
+        verify(calendarEventGateway, times(2)).attachRoom("event-123", "cr_000004170");
     }
 
     @Test
-    void shouldRethrowAfterRetriesAreExhausted() {
-        when(properties.bookingMaxRetries()).thenReturn(2);
+    void shouldRethrowAfterRoomAttachRetriesAreExhausted() {
+        when(calendarEventGateway.createEvent(request)).thenReturn(createdEvent);
+        when(calendarEventGateway.booksRoomDuringCreate()).thenReturn(false);
+        when(properties.getBookingMaxRetries()).thenReturn(2);
         when(properties.resolvedBookingRetryBackoff()).thenReturn(Duration.ZERO);
-        when(calendarEventGateway.createMeetingWithRoom(request))
-                .thenThrow(new RuntimeException("HTTP 500"));
+        doThrow(new RuntimeException("HTTP 500"))
+                .when(calendarEventGateway).attachRoom("event-123", "cr_000004170");
 
         assertThatThrownBy(() -> bookMeetingRoomUseCase.execute(request))
                 .isInstanceOf(RuntimeException.class)
                 .hasMessage("HTTP 500");
-        verify(calendarEventGateway, times(3)).createMeetingWithRoom(request);
+        verify(calendarEventGateway, times(1)).createEvent(request);
+        verify(calendarEventGateway, times(3)).attachRoom("event-123", "cr_000004170");
+    }
+
+    @Test
+    void shouldRetryCreateWhenRoomIsBookedDuringCreate() {
+        when(calendarEventGateway.booksRoomDuringCreate()).thenReturn(true);
+        when(properties.getBookingMaxRetries()).thenReturn(2);
+        when(properties.resolvedBookingRetryBackoff()).thenReturn(Duration.ZERO);
+        when(calendarEventGateway.createEvent(request))
+                .thenThrow(new RuntimeException("too-far-event"))
+                .thenReturn(createdEvent);
+        doNothing().when(calendarEventGateway).attachRoom("event-123", "cr_000004170");
+
+        CreatedEvent actual = bookMeetingRoomUseCase.execute(request);
+
+        assertThat(actual).isEqualTo(expected);
+        verify(calendarEventGateway, times(2)).createEvent(request);
     }
 }

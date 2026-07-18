@@ -24,28 +24,84 @@ public class BookMeetingRoomUseCase {
     private final RoomBookerProperties properties;
 
     public CreatedEvent execute(BookingRequest request) {
-        int maxAttempts = properties.bookingMaxRetries() + 1;
+        if (calendarEventGateway.booksRoomDuringCreate()) {
+            return executeWithRoomOnCreate(request);
+        }
+        return executeCreateThenAttach(request);
+    }
+
+    private CreatedEvent executeWithRoomOnCreate(BookingRequest request) {
+        int maxAttempts = properties.getBookingMaxRetries() + 1;
         Duration backoff = properties.resolvedBookingRetryBackoff();
-        double multiplier = properties.bookingRetryMultiplier();
+        double multiplier = properties.getBookingRetryMultiplier();
 
         for (int attempt = 1; attempt <= maxAttempts; attempt++) {
             try {
                 log.info(
-                        "Booking attempt {}/{}: room {} for meeting '{}' from {} to {}",
+                        "Booking attempt {}/{} via create-with-room: meeting '{}' room {} ({}–{})",
                         attempt,
                         maxAttempts,
-                        request.roomEmail(),
                         request.meetingName(),
+                        request.roomEmail(),
                         request.start(),
                         request.end()
                 );
-                return calendarEventGateway.createMeetingWithRoom(request);
+                CreatedEvent created = calendarEventGateway.createEvent(request);
+                calendarEventGateway.attachRoom(created.eventId(), request.roomEmail());
+                return CreatedEvent.builder()
+                        .eventId(created.eventId())
+                        .summary(created.summary())
+                        .roomEmail(RoomResolver.toEmail(request.roomEmail()))
+                        .build();
             } catch (RuntimeException failure) {
                 if (attempt == maxAttempts) {
                     throw failure;
                 }
                 log.warn(
                         "Booking attempt {}/{} failed: {}; retrying in {}",
+                        attempt,
+                        maxAttempts,
+                        failure.getMessage(),
+                        backoff
+                );
+                sleep(backoff);
+                backoff = scaleBackoff(backoff, multiplier);
+            }
+        }
+        throw new IllegalStateException("Booking aborted: booking-max-retries must be >= 0");
+    }
+
+    private CreatedEvent executeCreateThenAttach(BookingRequest request) {
+        CreatedEvent created = calendarEventGateway.createEvent(request);
+
+        int maxAttempts = properties.getBookingMaxRetries() + 1;
+        Duration backoff = properties.resolvedBookingRetryBackoff();
+        double multiplier = properties.getBookingRetryMultiplier();
+
+        for (int attempt = 1; attempt <= maxAttempts; attempt++) {
+            try {
+                log.info(
+                        "Room attach attempt {}/{}: room {} to event {} for meeting '{}' ({}–{})",
+                        attempt,
+                        maxAttempts,
+                        request.roomEmail(),
+                        created.eventId(),
+                        request.meetingName(),
+                        request.start(),
+                        request.end()
+                );
+                calendarEventGateway.attachRoom(created.eventId(), request.roomEmail());
+                return CreatedEvent.builder()
+                        .eventId(created.eventId())
+                        .summary(created.summary())
+                        .roomEmail(RoomResolver.toEmail(request.roomEmail()))
+                        .build();
+            } catch (RuntimeException failure) {
+                if (attempt == maxAttempts) {
+                    throw failure;
+                }
+                log.warn(
+                        "Room attach attempt {}/{} failed: {}; retrying in {}",
                         attempt,
                         maxAttempts,
                         failure.getMessage(),

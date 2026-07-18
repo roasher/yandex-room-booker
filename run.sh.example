@@ -1,16 +1,20 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Copy to run.sh and fill in your OAuth token and booking parameters.
-# OAuth app: https://oauth.yandex-team.ru (scopes: calendar:events.write or calendar:write_all)
-# Token URL: https://oauth.yandex-team.ru/authorize?client_id=<CLIENT_ID>&response_type=token
-# Docs: https://docs.yandex-team.ru/calendar-api
+# Booking modes (ROOM_BOOKER_BOOKING_MODE):
+#   api     — Public Calendar API; needs YANDEX_CALENDAR_OAUTH_TOKEN
+#   browser — Web UI API; needs YANDEX_CALENDAR_COOKIES (full Cookie header, like EVENTS_API_COOKIES)
+#             ckey/uid are fetched automatically. Prefer for debugging detailed errors.
 #
-# Rooms: see src/main/resources/rooms.yml (max-duration, bookable-ahead per room)
-# The bot waits until slot_start - bookable-ahead, then books automatically.
-# Duration: 90m, 1h, 1h30m (end = start + duration)
+# Rooms: see src/main/resources/rooms.yml
+# Duration: 90m, 1h, 1h30m
 
-export YANDEX_CALENDAR_OAUTH_TOKEN="y1_..."
+export ROOM_BOOKER_BOOKING_MODE="browser"
+export YANDEX_CALENDAR_COOKIES="gdpr=0; Session_id=...; sessionid2=...; ..."
+
+# For api mode instead:
+# export ROOM_BOOKER_BOOKING_MODE="api"
+# export YANDEX_CALENDAR_OAUTH_TOKEN="y1_..."
 
 export SPRING_APPLICATION_JSON="$(cat <<EOF
 {
@@ -25,4 +29,8 @@ export SPRING_APPLICATION_JSON="$(cat <<EOF
 EOF
 )"
 
-./mvnw spring-boot:run
+mkdir -p logs
+RUN_LOG="logs/run-$(date +%Y%m%d-%H%M%S).log"
+ln -sfn "$(basename "$RUN_LOG")" logs/latest.log
+echo "Writing run log to ${RUN_LOG} (also logs/latest.log)"
+./mvnw spring-boot:run 2>&1 | tee "$RUN_LOG"
