@@ -10,6 +10,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.jspecify.annotations.Nullable;
 import org.springframework.stereotype.Service;
+import ru.yandex.roombooker.adapter.out.client.CalendarApiException;
 import ru.yandex.roombooker.config.MeetingRoomEntry;
 import ru.yandex.roombooker.config.RoomBookerProperties;
 import ru.yandex.roombooker.domain.model.BookingRequest;
@@ -215,28 +216,67 @@ public class ProgressiveBookMeetingRoomUseCase {
     }
 
     private HeldBooking tryShift(HeldBooking held, BookingSlot slot, String timeZone) {
+        int maxAttempts = Math.max(1, properties.getBookingMaxRetries() + 1);
+        Duration backoff = properties.resolvedBookingRetryBackoff();
+        double multiplier = properties.getBookingRetryMultiplier();
+
+        for (int attempt = 1; attempt <= maxAttempts; attempt++) {
+            try {
+                log.info(
+                        "Ladder shift attempt {}/{}: event {} {}–{} -> {}–{}",
+                        attempt,
+                        maxAttempts,
+                        held.eventId(),
+                        held.slot().start(),
+                        held.slot().end(),
+                        slot.start(),
+                        slot.end()
+                );
+                calendarEventGateway.updateEventTime(held.eventId(), slot.start(), slot.end(), timeZone);
+                return new HeldBooking(held.eventId(), slot);
+            } catch (RuntimeException failure) {
+                if (!isRetryableShiftFailure(failure) || attempt == maxAttempts) {
+                    log.warn(
+                            "Ladder shift failed for event {} to {}–{}: {}; keeping {}–{}",
+                            held.eventId(),
+                            slot.start(),
+                            slot.end(),
+                            failure.getMessage(),
+                            held.slot().start(),
+                            held.slot().end()
+                    );
+                    return held;
+                }
+                log.warn(
+                        "Ladder shift attempt {}/{} failed: {}; retrying in {}",
+                        attempt,
+                        maxAttempts,
+                        failure.getMessage(),
+                        backoff
+                );
+                sleep(backoff);
+                backoff = Duration.ofMillis(Math.round(backoff.toMillis() * multiplier));
+            }
+        }
+        return held;
+    }
+
+    private static boolean isRetryableShiftFailure(RuntimeException failure) {
+        if (failure instanceof CalendarApiException calendarApiException) {
+            return calendarApiException.isRetryable();
+        }
+        return true;
+    }
+
+    private static void sleep(Duration duration) {
+        if (duration.isZero() || duration.isNegative()) {
+            return;
+        }
         try {
-            log.info(
-                    "Ladder shift attempt: event {} {}–{} -> {}–{}",
-                    held.eventId(),
-                    held.slot().start(),
-                    held.slot().end(),
-                    slot.start(),
-                    slot.end()
-            );
-            calendarEventGateway.updateEventTime(held.eventId(), slot.start(), slot.end(), timeZone);
-            return new HeldBooking(held.eventId(), slot);
-        } catch (RuntimeException failure) {
-            log.warn(
-                    "Ladder shift failed for event {} to {}–{}: {}; keeping {}–{}",
-                    held.eventId(),
-                    slot.start(),
-                    slot.end(),
-                    failure.getMessage(),
-                    held.slot().start(),
-                    held.slot().end()
-            );
-            return held;
+            Thread.sleep(duration.toMillis());
+        } catch (InterruptedException interrupted) {
+            Thread.currentThread().interrupt();
+            throw new IllegalStateException("Interrupted while waiting to retry ladder shift", interrupted);
         }
     }
 

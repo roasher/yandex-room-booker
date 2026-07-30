@@ -77,6 +77,9 @@ class ProgressiveBookMeetingRoomUseCaseTest {
     void setUp() throws InterruptedException {
         when(properties.resolvedSlotShiftStep()).thenReturn(STEP);
         lenient().when(properties.resolvedBookingOpenBuffer()).thenReturn(Duration.ofSeconds(30));
+        lenient().when(properties.getBookingMaxRetries()).thenReturn(0);
+        lenient().when(properties.resolvedBookingRetryBackoff()).thenReturn(Duration.ZERO);
+        lenient().when(properties.getBookingRetryMultiplier()).thenReturn(1.0);
         when(bookingLadderPlanner.buildLadder(TARGET_START, DURATION, STEP)).thenReturn(ladder);
         lenient().when(bookingSchedulePlanner.firstAttemptAt(any(), any(), any()))
                 .thenAnswer(invocation -> invocation.getArgument(0));
@@ -160,6 +163,34 @@ class ProgressiveBookMeetingRoomUseCaseTest {
         assertThat(actual.eventId()).isEqualTo("event-1");
         verify(bookMeetingRoomUseCase, times(1)).execute(any());
         verify(calendarEventGateway, times(2)).updateEventTime(eq("event-1"), any(), any(), eq(TZ));
+    }
+
+    @Test
+    void shouldRetryShiftWhenBusyThenSucceed() throws InterruptedException {
+        when(properties.getBookingMaxRetries()).thenReturn(2);
+        when(bookMeetingRoomUseCase.execute(request(ladder.getFirst())))
+                .thenReturn(created("event-1"));
+        when(calendarEventGateway.updateEventTime(
+                "event-1",
+                ladder.getLast().start(),
+                ladder.getLast().end(),
+                TZ
+        ))
+                .thenThrow(new ru.yandex.roombooker.adapter.out.client.CalendarApiException(
+                        "Calendar API request failed: HTTP 400 rooms are busy",
+                        400
+                ))
+                .thenReturn(created("event-1"));
+
+        CreatedEvent actual = useCase.execute(MEETING, ROOM, TARGET_START, DURATION, TZ, catalogEntry);
+
+        assertThat(actual.eventId()).isEqualTo("event-1");
+        verify(calendarEventGateway, times(2)).updateEventTime(
+                "event-1",
+                ladder.getLast().start(),
+                ladder.getLast().end(),
+                TZ
+        );
     }
 
     @Test

@@ -16,12 +16,12 @@ class CalendarApiExceptionTest {
     }
 
     @Test
-    void shouldNotRetryRoomBusyOnHttp400() {
+    void shouldRetryRoomBusyOnHttp400() {
         CalendarApiException exception = new CalendarApiException(
                 "Calendar API request failed: HTTP 400 rooms are busy",
                 400
         );
-        assertThat(exception.isRetryable()).isFalse();
+        assertThat(exception.isRetryable()).isTrue();
     }
 
     @Test
