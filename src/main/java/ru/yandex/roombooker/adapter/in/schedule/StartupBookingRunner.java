@@ -1,6 +1,7 @@
 package ru.yandex.roombooker.adapter.in.schedule;
 
 import java.time.LocalDateTime;
+import java.util.List;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -8,15 +9,16 @@ import org.springframework.boot.ApplicationArguments;
 import org.springframework.boot.ApplicationRunner;
 import org.springframework.stereotype.Component;
 import ru.yandex.roombooker.config.RoomBookerProperties;
-import ru.yandex.roombooker.domain.BookMeetingRoomUseCase;
+import ru.yandex.roombooker.domain.BookingLadderPlanner;
 import ru.yandex.roombooker.domain.BookingSchedulePlanner;
-import ru.yandex.roombooker.domain.BookingWaiter;
+import ru.yandex.roombooker.domain.ProgressiveBookMeetingRoomUseCase;
 import ru.yandex.roombooker.domain.RoomResolver;
-import ru.yandex.roombooker.domain.model.BookingRequest;
+import ru.yandex.roombooker.domain.model.BookingSlot;
 import ru.yandex.roombooker.domain.model.CreatedEvent;
 
 /**
- * Waits until the room booking window opens, then books the requested slot once on startup.
+ * On startup books the configured room: direct target booking when there is no bookable-ahead
+ * policy, otherwise progressive ladder toward the target.
  */
 @Slf4j
 @Component
@@ -25,9 +27,9 @@ public class StartupBookingRunner implements ApplicationRunner {
 
     private final RoomBookerProperties properties;
     private final RoomResolver roomResolver;
-    private final BookMeetingRoomUseCase bookMeetingRoomUseCase;
+    private final BookingLadderPlanner bookingLadderPlanner;
     private final BookingSchedulePlanner bookingSchedulePlanner;
-    private final BookingWaiter bookingWaiter;
+    private final ProgressiveBookMeetingRoomUseCase progressiveBookMeetingRoomUseCase;
 
     @Override
     public void run(ApplicationArguments args) throws InterruptedException {
@@ -39,8 +41,8 @@ public class StartupBookingRunner implements ApplicationRunner {
         validateProperties();
         log.info("Booking mode: {}", properties.bookingMode());
         RoomResolver.ResolvedRoom room = roomResolver.resolve(properties.effectiveRoomReference());
-        LocalDateTime start = properties.bookingStart();
-        LocalDateTime end = properties.bookingEnd();
+        LocalDateTime targetStart = properties.bookingStart();
+        LocalDateTime targetEnd = properties.bookingEnd();
 
         bookingSchedulePlanner.validateDuration(
                 properties.bookingDuration(),
@@ -48,46 +50,78 @@ public class StartupBookingRunner implements ApplicationRunner {
                 room.displayName()
         );
 
-        log.info(
-                "Using room {} ({}) -> {}, slot {}–{} ({} min)",
-                room.displayName(),
-                room.exchange(),
-                room.email(),
-                start,
-                end,
-                properties.bookingDuration().toMinutes()
-        );
-
-        LocalDateTime attemptAt = bookingSchedulePlanner.firstAttemptAt(
-                start,
-                room.catalogEntry(),
-                properties.resolvedBookingOpenBuffer()
-        );
-        if (attemptAt.isAfter(LocalDateTime.now())) {
-            log.info(
-                    "Slot {} is not bookable yet (bookable-ahead={}); first attempt scheduled at {}",
-                    start,
-                    room.catalogEntry() == null ? "n/a" : room.catalogEntry().bookableAhead(),
-                    attemptAt
+        boolean progressive = room.catalogEntry() != null && room.catalogEntry().hasBookableAheadPolicy();
+        if (progressive) {
+            List<BookingSlot> ladder = bookingLadderPlanner.buildLadder(
+                    targetStart,
+                    properties.bookingDuration(),
+                    properties.resolvedSlotShiftStep()
             );
-            bookingWaiter.waitUntil(attemptAt);
+            BookingSlot earliest = ladder.getFirst();
+            log.info(
+                    "Using room {} ({}) -> {}, target {}–{} ({} min), ladder {} slots from {} step {}",
+                    room.displayName(),
+                    room.exchange(),
+                    room.email(),
+                    targetStart,
+                    targetEnd,
+                    properties.bookingDuration().toMinutes(),
+                    ladder.size(),
+                    earliest.start(),
+                    properties.resolvedSlotShiftStep()
+            );
+            LocalDateTime firstAttemptAt = bookingSchedulePlanner.firstAttemptAt(
+                    earliest.start(),
+                    room.catalogEntry(),
+                    properties.resolvedBookingOpenBuffer()
+            );
+            log.info(
+                    "Earliest ladder slot {} is bookable from {} (bookable-ahead={})",
+                    earliest.start(),
+                    firstAttemptAt,
+                    room.catalogEntry().bookableAhead()
+            );
+        } else {
+            log.info(
+                    "Using room {} ({}) -> {}, target {}–{} ({} min), direct booking (no bookable-ahead)",
+                    room.displayName(),
+                    room.exchange(),
+                    room.email(),
+                    targetStart,
+                    targetEnd,
+                    properties.bookingDuration().toMinutes()
+            );
         }
 
-        BookingRequest request = BookingRequest.builder()
-                .meetingName(properties.getMeetingName())
-                .roomEmail(room.exchange())
-                .start(start)
-                .end(end)
-                .timeZone(properties.getTimeZone())
-                .build();
-
-        CreatedEvent created = bookMeetingRoomUseCase.execute(request);
-        log.info(
-                "Booked meeting room: eventId={}, summary={}, room={}",
-                created.eventId(),
-                created.summary(),
-                created.roomEmail()
-        );
+        try {
+            CreatedEvent created = progressiveBookMeetingRoomUseCase.execute(
+                    properties.getMeetingName(),
+                    room.exchange(),
+                    targetStart,
+                    properties.bookingDuration(),
+                    properties.getTimeZone(),
+                    room.catalogEntry()
+            );
+            log.info(
+                    "Booking successful: {}–{} booked for '{}' in {} ({}) (eventId={})",
+                    targetStart,
+                    targetEnd,
+                    created.summary(),
+                    room.displayName(),
+                    created.roomEmail(),
+                    created.eventId()
+            );
+        } catch (RuntimeException failure) {
+            // Room busy / contested slot is an expected outcome for a one-shot booker: we tried.
+            log.warn(
+                    "Could not book {} ({}) for {}–{}: {}. Exiting without a booking.",
+                    room.displayName(),
+                    room.exchange(),
+                    targetStart,
+                    targetEnd,
+                    failure.getMessage()
+            );
+        }
     }
 
     private void validateProperties() {
@@ -100,6 +134,7 @@ public class StartupBookingRunner implements ApplicationRunner {
             );
         }
         properties.bookingDuration();
+        properties.resolvedSlotShiftStep();
         properties.validateAuth();
     }
 
