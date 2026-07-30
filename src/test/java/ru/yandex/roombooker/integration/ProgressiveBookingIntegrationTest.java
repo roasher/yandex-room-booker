@@ -180,6 +180,7 @@ class ProgressiveBookingIntegrationTest {
                 "GET /v1/calendar/events",
                 "POST /v1/calendar/events",
                 "PATCH /v1/calendar/events/" + EVENT_ID + "/rooms",
+                "DELETE /v1/calendar/events/" + EVENT_ID,
                 "POST /v1/calendar/events",
                 "PATCH /v1/calendar/events/" + EVENT_ID + "/rooms"
         ));
@@ -308,7 +309,8 @@ class ProgressiveBookingIntegrationTest {
             }
             if (path.matches("/v1/calendar/events/.+/rooms") && "GET".equals(method)) {
                 requestLog.add(key);
-                return json(200, "{\"items\":[\"" + ROOM + "\"]}");
+                return json(200, "{\"limit\":1,\"items\":[{\"room_id\":\"" + ROOM
+                        + "\",\"name\":\"Room\",\"email\":\"" + ROOM + "@yandex-team.ru\"}]}");
             }
             if (path.equals("/v1/calendar/events") && "POST".equals(method)) {
                 requestLog.add(key);
@@ -320,6 +322,10 @@ class ProgressiveBookingIntegrationTest {
                 if (failFirstCreateAttach.compareAndSet(true, false)) {
                     return json(409, "{\"error\":\"busy\",\"message\":\"room busy\"}");
                 }
+                return new MockResponse().setResponseCode(204);
+            }
+            if (path.equals("/v1/calendar/events/" + EVENT_ID) && "DELETE".equals(method)) {
+                requestLog.add(key);
                 return new MockResponse().setResponseCode(204);
             }
             if (path.equals("/v1/calendar/events/" + EVENT_ID) && "PATCH".equals(method)) {

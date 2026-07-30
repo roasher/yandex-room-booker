@@ -38,6 +38,7 @@ class RoomBookerPropertiesTest {
         properties.setDuration("1h30m");
         properties.setOauthToken("token");
         properties.setBookingOpenBuffer("30s");
+        properties.setSlotShiftStep("30m");
         properties.setBookingMaxRetries(2);
         properties.setBookingRetryBackoff("1s");
         properties.setBookingRetryMultiplier(2);

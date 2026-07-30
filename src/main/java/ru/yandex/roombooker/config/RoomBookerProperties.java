@@ -25,6 +25,7 @@ public abstract class RoomBookerProperties {
     private String start;
     private String duration;
     private String bookingOpenBuffer;
+    private String slotShiftStep;
     private int bookingMaxRetries;
     private String bookingRetryBackoff;
     private double bookingRetryMultiplier;
@@ -68,6 +69,10 @@ public abstract class RoomBookerProperties {
             return Duration.ofSeconds(60);
         }
         return DurationParsing.parse(bookingOpenBuffer);
+    }
+
+    public Duration resolvedSlotShiftStep() {
+        return DurationParsing.parseRequired(slotShiftStep, "room-booker.slot-shift-step (e.g. 30m)");
     }
 
     public Duration resolvedBookingRetryBackoff() {

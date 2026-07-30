@@ -17,6 +17,7 @@ import org.springframework.stereotype.Component;
 public class BookingWaiter {
 
     private static final Duration MAX_SLEEP = Duration.ofMinutes(1);
+    private static final Duration LOG_THRESHOLD = Duration.ofSeconds(1);
 
     private final Clock clock;
 
@@ -27,9 +28,11 @@ public class BookingWaiter {
                 return;
             }
             Duration remaining = Duration.between(now, target);
-            log.info("Booking window opens at {}; waiting {} more", target, formatRemaining(remaining));
-            Duration sleepFor = remaining.compareTo(MAX_SLEEP) > 0 ? MAX_SLEEP : remaining;
-            Thread.sleep(sleepFor.toMillis());
+            if (remaining.compareTo(LOG_THRESHOLD) >= 0) {
+                log.info("Booking window opens at {}; waiting {} more", target, formatRemaining(remaining));
+            }
+            long sleepMs = Math.max(1L, Math.min(remaining.toMillis(), MAX_SLEEP.toMillis()));
+            Thread.sleep(sleepMs);
         }
     }
 

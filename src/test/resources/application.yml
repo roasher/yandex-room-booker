@@ -3,3 +3,7 @@ room-booker:
   booking-mode: api
   oauth-token: test-token
   booking-open-buffer: 30s
+  slot-shift-step: 30m
+  booking-max-retries: 2
+  booking-retry-backoff: 0s
+  booking-retry-multiplier: 1

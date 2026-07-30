@@ -21,6 +21,25 @@ class BookingSchedulePlannerTest {
     );
 
     @Test
+    void shouldComputeAbsoluteBookingWindowOpenTime() {
+        MeetingRoomEntry room = new MeetingRoomEntry(
+                "Yoga",
+                "conf_st_yoga",
+                "Office",
+                "90m",
+                "3d"
+        );
+
+        LocalDateTime opens = planner.bookingWindowOpensAt(
+                LocalDateTime.parse("2026-06-25T14:00:00"),
+                room,
+                Duration.ofSeconds(30)
+        );
+
+        assertThat(opens).isEqualTo(LocalDateTime.parse("2026-06-22T14:00:30"));
+    }
+
+    @Test
     void shouldScheduleAttemptWhenBookingWindowIsStillClosed() {
         MeetingRoomEntry room = new MeetingRoomEntry(
                 "Yoga",
