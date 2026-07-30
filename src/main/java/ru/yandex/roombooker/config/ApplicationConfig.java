@@ -8,6 +8,7 @@ import org.springframework.boot.context.properties.EnableConfigurationProperties
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Primary;
+import org.springframework.http.client.HttpComponentsClientHttpRequestFactory;
 import org.springframework.web.client.RestClient;
 
 /**
@@ -40,8 +41,10 @@ public class ApplicationConfig {
 
     @Bean
     RestClient calendarRestClient(RoomBookerProperties properties, RestClient.Builder restClientBuilder) {
+        // HttpURLConnection (Boot default) is unreliable for PATCH with a JSON body.
         return restClientBuilder
                 .baseUrl(properties.calendarBaseUrl())
+                .requestFactory(new HttpComponentsClientHttpRequestFactory())
                 .build();
     }
 }

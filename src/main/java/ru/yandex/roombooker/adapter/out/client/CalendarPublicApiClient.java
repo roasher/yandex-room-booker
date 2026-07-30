@@ -1,5 +1,6 @@
 package ru.yandex.roombooker.adapter.out.client;
 
+import java.nio.charset.StandardCharsets;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.List;
@@ -44,7 +45,7 @@ public class CalendarPublicApiClient implements CalendarEventGateway {
         CreateEventResponse created = postJson(
                 resolveOAuthToken(),
                 "/v1/calendar/events",
-                toJson(buildCreateEventRequest(request)),
+                buildCreateEventRequest(request),
                 CreateEventResponse.class
         );
 
@@ -65,7 +66,7 @@ public class CalendarPublicApiClient implements CalendarEventGateway {
         patchJson(
                 resolveOAuthToken(),
                 "/v1/calendar/events/" + eventId + "/rooms",
-                toJson(new AddRoomsToEventRequest(List.of(normalizedRoomId)))
+                new AddRoomsToEventRequest(List.of(normalizedRoomId))
         );
         log.info("Attached room {} to event {}", normalizedRoomId, eventId);
     }
@@ -91,14 +92,27 @@ public class CalendarPublicApiClient implements CalendarEventGateway {
         }
     }
 
-    private <T> T postJson(String oauthToken, String uri, String jsonBody, Class<T> responseType) {
-        log.debug("Calendar API request: POST {} body={}", uri, jsonBody);
-
-        T response = calendarRestClient.post()
-                .uri(uri)
+    /**
+     * Writes JSON via streaming body so Content-Type stays {@code application/json}.
+     * Avoids String→text/plain and byte[]→octet-stream converter defaults.
+     */
+    private RestClient.RequestBodySpec jsonRequest(RestClient.RequestBodySpec request, Object body) {
+        byte[] jsonBytes = toJson(body).getBytes(StandardCharsets.UTF_8);
+        return request
                 .contentType(MediaType.APPLICATION_JSON)
-                .header("Authorization", "OAuth " + oauthToken)
-                .body(jsonBody)
+                .contentLength(jsonBytes.length)
+                .body(outputStream -> outputStream.write(jsonBytes));
+    }
+
+    private <T> T postJson(String oauthToken, String uri, Object body, Class<T> responseType) {
+        log.debug("Calendar API request: POST {} body={}", uri, toJson(body));
+
+        T response = jsonRequest(
+                calendarRestClient.post()
+                        .uri(uri)
+                        .header("Authorization", "OAuth " + oauthToken),
+                body
+        )
                 .retrieve()
                 .onStatus(HttpStatusCode::isError, this::throwApiException)
                 .body(responseType);
@@ -109,14 +123,15 @@ public class CalendarPublicApiClient implements CalendarEventGateway {
         return response;
     }
 
-    private void patchJson(String oauthToken, String uri, String jsonBody) {
-        log.debug("Calendar API request: PATCH {} body={}", uri, jsonBody);
+    private void patchJson(String oauthToken, String uri, Object body) {
+        log.debug("Calendar API request: PATCH {} body={}", uri, toJson(body));
 
-        calendarRestClient.patch()
-                .uri(uri)
-                .contentType(MediaType.APPLICATION_JSON)
-                .header("Authorization", "OAuth " + oauthToken)
-                .body(jsonBody)
+        jsonRequest(
+                calendarRestClient.patch()
+                        .uri(uri)
+                        .header("Authorization", "OAuth " + oauthToken),
+                body
+        )
                 .retrieve()
                 .onStatus(HttpStatusCode::isError, this::throwApiException)
                 .toBodilessEntity();
@@ -171,7 +186,7 @@ public class CalendarPublicApiClient implements CalendarEventGateway {
         }
     }
 
-    private static String textField(JsonNode root, String fieldName) {
+    private String textField(JsonNode root, String fieldName) {
         JsonNode field = root.get(fieldName);
         if (field == null || field.isNull()) {
             return null;
@@ -188,7 +203,7 @@ public class CalendarPublicApiClient implements CalendarEventGateway {
         );
     }
 
-    static String normalizeRoomId(String roomReference) {
+    String normalizeRoomId(String roomReference) {
         int atIndex = roomReference.indexOf('@');
         if (atIndex >= 0) {
             return roomReference.substring(0, atIndex);
@@ -196,7 +211,7 @@ public class CalendarPublicApiClient implements CalendarEventGateway {
         return roomReference;
     }
 
-    static String normalizeRoomEmail(String roomId) {
+    String normalizeRoomEmail(String roomId) {
         if (roomId.contains("@")) {
             return roomId;
         }
