@@ -1,6 +1,8 @@
 package ru.yandex.roombooker.adapter.out.client;
 
+import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -23,6 +25,7 @@ import ru.yandex.roombooker.domain.CalendarEventGateway;
 import ru.yandex.roombooker.domain.RoomResolver;
 import ru.yandex.roombooker.domain.model.BookingRequest;
 import ru.yandex.roombooker.domain.model.CreatedEvent;
+import ru.yandex.roombooker.domain.model.ExistingEvent;
 
 /**
  * Client for the Calendar web UI API ({@code calendar.yandex-team.ru/api/models}).
@@ -69,7 +72,7 @@ public class CalendarWebApiClient implements CalendarEventGateway {
         params.put("participantsCanInvite", true);
         params.put("isAllDay", false);
         params.put("participantsCanEdit", true);
-        params.put("visibility", "everyone");
+        params.put("visibility", "participants");
         params.put("start", request.start().format(API_DATE_TIME));
         params.put("end", request.end().format(API_DATE_TIME));
         params.put("tz", request.timeZone());
@@ -109,6 +112,117 @@ public class CalendarWebApiClient implements CalendarEventGateway {
     public void attachRoom(String eventId, String roomId) {
         // Room is already booked in create-event (same as the browser UI).
         log.debug("Skipping attachRoom for event {}: room was booked during create-event", eventId);
+    }
+
+    @Override
+    public void deleteEvent(String eventId) {
+        sessionResolver.ensureSession();
+        invokeModel("delete-event", Map.of("id", eventId));
+        log.info("Deleted calendar event {} via web API", eventId);
+    }
+
+    @Override
+    public CreatedEvent updateEventTime(String eventId, LocalDateTime start, LocalDateTime end, String timeZone) {
+        sessionResolver.ensureSession();
+        JsonNode existing = invokeModel("get-event", Map.of("id", eventId));
+        @SuppressWarnings("unchecked")
+        Map<String, Object> params = objectMapper.convertValue(existing, Map.class);
+        if (params == null) {
+            params = new LinkedHashMap<>();
+        }
+        params.put("id", eventId);
+        params.put("start", start.format(API_DATE_TIME));
+        params.put("end", end.format(API_DATE_TIME));
+        params.put("tz", timeZone);
+        invokeModel("update-event", params);
+        log.info("Updated calendar event {} via web API to {}–{}", eventId, start, end);
+        return CreatedEvent.builder()
+                .eventId(eventId)
+                .summary(responseParser.textOrNumber(existing, "name"))
+                .build();
+    }
+
+    @Override
+    public List<ExistingEvent> findEvents(LocalDateTime from, LocalDateTime to, String timeZone) {
+        sessionResolver.ensureSession();
+        Map<String, Object> params = new LinkedHashMap<>();
+        params.put("from", from.format(API_DATE_TIME));
+        params.put("to", to.format(API_DATE_TIME));
+        params.put("tz", timeZone);
+        JsonNode data = invokeModel("get-events", params);
+        JsonNode eventsNode = data.path("events");
+        if (!eventsNode.isArray()) {
+            eventsNode = data.isArray() ? data : data.path("items");
+        }
+        if (!eventsNode.isArray()) {
+            return List.of();
+        }
+
+        List<ExistingEvent> events = new ArrayList<>();
+        for (JsonNode event : eventsNode) {
+            String eventId = firstNonBlank(
+                    responseParser.textOrNumber(event, "showEventId"),
+                    responseParser.textOrNumber(event, "id"),
+                    responseParser.textOrNumber(event, "eventId")
+            );
+            String summary = firstNonBlank(
+                    responseParser.textOrNumber(event, "name"),
+                    responseParser.textOrNumber(event, "summary")
+            );
+            String startText = firstNonBlank(
+                    responseParser.textOrNumber(event, "start"),
+                    responseParser.textOrNumber(event.path("start"), "date_time")
+            );
+            String endText = firstNonBlank(
+                    responseParser.textOrNumber(event, "end"),
+                    responseParser.textOrNumber(event.path("end"), "date_time")
+            );
+            if (eventId == null || startText == null || endText == null) {
+                continue;
+            }
+            events.add(ExistingEvent.builder()
+                    .eventId(eventId)
+                    .summary(summary == null ? "" : summary)
+                    .start(LocalDateTime.parse(startText.substring(0, Math.min(19, startText.length()))))
+                    .end(LocalDateTime.parse(endText.substring(0, Math.min(19, endText.length()))))
+                    .roomReferences(extractAttendees(event))
+                    .build());
+        }
+        return List.copyOf(events);
+    }
+
+    private List<String> extractAttendees(JsonNode event) {
+        JsonNode attendees = event.path("attendees");
+        if (!attendees.isArray()) {
+            attendees = event.path("resources");
+        }
+        if (!attendees.isArray()) {
+            return List.of();
+        }
+        List<String> rooms = new ArrayList<>();
+        for (JsonNode attendee : attendees) {
+            if (attendee.isTextual()) {
+                rooms.add(attendee.asText());
+            } else {
+                String email = firstNonBlank(
+                        responseParser.textOrNumber(attendee, "email"),
+                        responseParser.textOrNumber(attendee, "login")
+                );
+                if (email != null) {
+                    rooms.add(email);
+                }
+            }
+        }
+        return List.copyOf(rooms);
+    }
+
+    private static String firstNonBlank(String... values) {
+        for (String value : values) {
+            if (value != null && !value.isBlank()) {
+                return value;
+            }
+        }
+        return null;
     }
 
     private JsonNode invokeModel(String modelName, Map<String, Object> params) {
@@ -152,7 +266,8 @@ public class CalendarWebApiClient implements CalendarEventGateway {
                     body
             );
             throw new CalendarApiException(
-                    "Calendar web API request failed: HTTP %s %s".formatted(status, body)
+                    "Calendar web API request failed: HTTP %s %s".formatted(status, body),
+                    status
             );
         } catch (java.io.IOException exception) {
             throw new CalendarApiException("Calendar web API request failed", exception);

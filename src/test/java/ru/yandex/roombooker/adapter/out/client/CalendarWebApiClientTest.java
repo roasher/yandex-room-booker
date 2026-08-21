@@ -87,6 +87,7 @@ class CalendarWebApiClientTest {
         assertThat(bodyCaptor.getValue()).contains("\"start\":\"2026-06-22T14:00:00\"");
         assertThat(bodyCaptor.getValue()).contains("conf_st_yoga@yandex-team.ru");
         assertThat(bodyCaptor.getValue()).contains("\"eventType\":\"user\"");
+        assertThat(bodyCaptor.getValue()).contains("\"visibility\":\"participants\"");
         assertThat(bodyCaptor.getValue()).contains("pavelyurkin@yandex-team.ru");
     }
 

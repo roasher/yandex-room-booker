@@ -6,7 +6,9 @@
 #   "Строганов — йога" | "Мамонтов — танцевальный зал" | "Лотте - музыкальная комната" | "Око — музыкальная комната"
 #
 # max-duration: longest allowed booking (e.g. 90m, 1h30m)
-# bookable-ahead: how far before slot start booking opens (e.g. 3d = 72 hours)
+# bookable-ahead: how far before slot start booking opens (e.g. 3d = 72 hours).
+#   Omit bookable-ahead for rooms that can be booked anytime a free slot exists
+#   (no progressive ladder — direct target booking only).
 
 room-catalog:
   rooms:
@@ -36,14 +38,12 @@ room-catalog:
       exchange: conf_st_muz
       office: "БЦ Строганов, 5 этаж"
       max-duration: 3h
-      bookable-ahead: 3d
 
     aurora-music:
       display-name: "Аврора — музыкальная комната"
       exchange: conf_aur_6a13
       office: "БЦ Аврора, 6A"
       max-duration: 3h
-      bookable-ahead: 3d
 
     lotte-music:
       display-name: "Лотте - музыкальная комната"

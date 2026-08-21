@@ -24,9 +24,12 @@ room-booker:
   room-email: ""
   start: ""
   duration: ""
-  # Delay after bookable-ahead opens (Calendar often rejects exact open second / minute).
-  booking-open-buffer: 50s
-  booking-max-retries: 180
+  # Delay after bookable-ahead opens (Calendar often rejects the exact open second).
+  # Retries still cover residual clock skew via "not bookable" → retryable attach.
+  booking-open-buffer: 90s
+  # Progressive booking: walk held slot toward target in this step.
+  slot-shift-step: 30m
+  booking-max-retries: 20
   booking-retry-backoff: 1s
   booking-retry-multiplier: 1
   # api mode

@@ -19,13 +19,28 @@ public class BookingSchedulePlanner {
 
     private final Clock clock;
 
-    public LocalDateTime firstAttemptAt(LocalDateTime slotStart, @Nullable MeetingRoomEntry room, Duration openBuffer) {
+    /**
+     * Absolute time when the booking window for {@code slotStart} opens (ignores "already open").
+     * Returns {@code null} when the room has no bookable-ahead policy.
+     */
+    public @Nullable LocalDateTime bookingWindowOpensAt(
+            LocalDateTime slotStart,
+            @Nullable MeetingRoomEntry room,
+            Duration openBuffer
+    ) {
         if (room == null || room.bookableAhead() == null || room.bookableAhead().isBlank()) {
-            return LocalDateTime.now(clock);
+            return null;
         }
         Duration bookableAhead = DurationParsing.parse(room.bookableAhead());
-        LocalDateTime windowOpens = slotStart.minus(bookableAhead).plus(openBuffer);
+        return slotStart.minus(bookableAhead).plus(openBuffer);
+    }
+
+    public LocalDateTime firstAttemptAt(LocalDateTime slotStart, @Nullable MeetingRoomEntry room, Duration openBuffer) {
         LocalDateTime now = LocalDateTime.now(clock);
+        LocalDateTime windowOpens = bookingWindowOpensAt(slotStart, room, openBuffer);
+        if (windowOpens == null) {
+            return now;
+        }
         if (!windowOpens.isAfter(now)) {
             return now;
         }

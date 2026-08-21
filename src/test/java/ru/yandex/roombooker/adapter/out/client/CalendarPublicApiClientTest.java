@@ -3,11 +3,13 @@ package ru.yandex.roombooker.adapter.out.client;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import java.nio.charset.StandardCharsets;
+import java.time.LocalDateTime;
 import java.util.function.Predicate;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -20,7 +22,10 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.client.RestClient;
+import ru.yandex.roombooker.adapter.out.client.dto.CreateEventResponse;
 import ru.yandex.roombooker.config.ApiRoomBookerProperties;
+import ru.yandex.roombooker.domain.model.BookingRequest;
+import ru.yandex.roombooker.domain.model.CreatedEvent;
 
 @ExtendWith(MockitoExtension.class)
 class CalendarPublicApiClientTest {
@@ -42,7 +47,7 @@ class CalendarPublicApiClientTest {
         properties.setOauthToken("token");
         properties.setApiBaseUrl("https://cloud-api.yandex.net");
         client = new CalendarPublicApiClient(calendarRestClient, properties, new ObjectMapper());
-        stubPatchChain();
+        stubRequestChain();
     }
 
     @Test
@@ -88,8 +93,44 @@ class CalendarPublicApiClientTest {
                 .isEqualTo("{\"items\":[\"conf_st_yoga\"]}");
     }
 
+    @Test
+    void shouldCreateEventWithParticipantsOnlyVisibility() {
+        when(responseSpec.body(eq(CreateEventResponse.class)))
+                .thenReturn(new CreateEventResponse("event-42"));
+
+        CreatedEvent created = client.createEvent(BookingRequest.builder()
+                .meetingName("Focus")
+                .roomEmail("conf_st_yoga")
+                .start(LocalDateTime.parse("2026-06-22T14:00:00"))
+                .end(LocalDateTime.parse("2026-06-22T15:30:00"))
+                .timeZone("Europe/Moscow")
+                .build());
+
+        assertThat(created).isEqualTo(CreatedEvent.builder()
+                .eventId("event-42")
+                .summary("Focus")
+                .build());
+
+        ArgumentCaptor<org.springframework.http.StreamingHttpOutputMessage.Body> bodyCaptor =
+                ArgumentCaptor.forClass(org.springframework.http.StreamingHttpOutputMessage.Body.class);
+        verify(calendarRestClient).post();
+        verify(requestBodySpec).body(bodyCaptor.capture());
+
+        java.io.ByteArrayOutputStream buffer = new java.io.ByteArrayOutputStream();
+        try {
+            bodyCaptor.getValue().writeTo(buffer);
+        } catch (java.io.IOException exception) {
+            throw new AssertionError(exception);
+        }
+        assertThat(buffer.toString(StandardCharsets.UTF_8))
+                .contains("\"visibility\":\"PARTICIPANTS\"")
+                .contains("\"participant_can_invite\":true")
+                .contains("\"participant_can_edit\":true");
+    }
+
     @SuppressWarnings("unchecked")
-    private void stubPatchChain() {
+    private void stubRequestChain() {
+        lenient().when(calendarRestClient.post()).thenReturn(requestBodyUriSpec);
         lenient().when(calendarRestClient.patch()).thenReturn(requestBodyUriSpec);
         lenient().when(requestBodyUriSpec.uri(anyString())).thenReturn(requestBodySpec);
         lenient().when(requestBodySpec.contentType(any(MediaType.class))).thenReturn(requestBodySpec);

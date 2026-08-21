@@ -12,11 +12,22 @@ public record CreateEventRequest(
         String summary,
         EventDateTime start,
         EventDateTime end,
-        List<EventParticipantRequest> participants
+        List<EventParticipantRequest> participants,
+        EventRules rules
 ) {
     public record EventDateTime(
             @JsonProperty("date_time") String dateTime,
             @JsonProperty("time_zone") String timeZone
     ) {
+    }
+
+    public record EventRules(
+            String visibility,
+            @JsonProperty("participant_can_invite") boolean participantCanInvite,
+            @JsonProperty("participant_can_edit") boolean participantCanEdit
+    ) {
+        public static EventRules participantsOnly() {
+            return new EventRules("PARTICIPANTS", true, true);
+        }
     }
 }
