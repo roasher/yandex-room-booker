@@ -72,7 +72,7 @@ public class CalendarWebApiClient implements CalendarEventGateway {
         params.put("participantsCanInvite", true);
         params.put("isAllDay", false);
         params.put("participantsCanEdit", true);
-        params.put("visibility", "everyone");
+        params.put("visibility", "participants");
         params.put("start", request.start().format(API_DATE_TIME));
         params.put("end", request.end().format(API_DATE_TIME));
         params.put("tz", request.timeZone());

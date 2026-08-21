@@ -172,7 +172,8 @@ public class CalendarPublicApiClient implements CalendarEventGateway {
                 request.meetingName(),
                 toEventDateTime(request.start(), request.timeZone()),
                 toEventDateTime(request.end(), request.timeZone()),
-                null
+                null,
+                CreateEventRequest.EventRules.participantsOnly()
         );
     }
 
