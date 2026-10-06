@@ -8,6 +8,10 @@ set -euo pipefail
 #
 # Rooms: see src/main/resources/rooms.yml
 # Duration: 90m, 1h, 1h30m
+# Date: ISO date ("2026-06-22"). Day-of-week: integer (1 = Monday, ..., 7 = Sunday).
+# At least one is required. If both are set, the date must fall on the specified day-of-week.
+# Without date, day-of-week selects its next occurrence after today, in room-booker.time-zone.
+# Time: HH:mm or HH:mm:ss, e.g. "14:00".
 
 export ROOM_BOOKER_BOOKING_MODE="browser"
 export YANDEX_CALENDAR_COOKIES="gdpr=0; Session_id=...; sessionid2=...; ..."
@@ -22,7 +26,8 @@ export SPRING_APPLICATION_JSON="$(cat <<EOF
     "enabled": true,
     "meeting-name": "D",
     "room": "stroganov-yoga",
-    "start": "2026-06-22T14:00:00",
+    "day-of-week": 1,
+    "time": "14:00",
     "duration": "1h30m"
   }
 }

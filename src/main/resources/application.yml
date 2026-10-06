@@ -22,7 +22,13 @@ room-booker:
   meeting-name: ""
   room: ""
   room-email: ""
-  start: ""
+  # Provide date (YYYY-MM-DD), day-of-week (1 = Monday, ..., 7 = Sunday), or both.
+  # When both are set, date must fall on day-of-week; otherwise startup fails.
+  date: ""
+  # Without date, selects the next occurrence after today, resolved once at startup in time-zone.
+  day-of-week:
+  # Start time in time-zone, HH:mm or HH:mm:ss.
+  time: ""
   duration: ""
   # Delay after bookable-ahead opens (Calendar often rejects the exact open second).
   # Retries still cover residual clock skew via "not bookable" → retryable attach.

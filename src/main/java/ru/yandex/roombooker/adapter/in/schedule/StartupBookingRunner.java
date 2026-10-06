@@ -1,5 +1,6 @@
 package ru.yandex.roombooker.adapter.in.schedule;
 
+import java.time.Clock;
 import java.time.LocalDateTime;
 import java.util.List;
 
@@ -30,6 +31,7 @@ public class StartupBookingRunner implements ApplicationRunner {
     private final BookingLadderPlanner bookingLadderPlanner;
     private final BookingSchedulePlanner bookingSchedulePlanner;
     private final ProgressiveBookMeetingRoomUseCase progressiveBookMeetingRoomUseCase;
+    private final Clock clock;
 
     @Override
     public void run(ApplicationArguments args) throws InterruptedException {
@@ -41,8 +43,8 @@ public class StartupBookingRunner implements ApplicationRunner {
         validateProperties();
         log.info("Booking mode: {}", properties.bookingMode());
         RoomResolver.ResolvedRoom room = roomResolver.resolve(properties.effectiveRoomReference());
-        LocalDateTime targetStart = properties.bookingStart();
-        LocalDateTime targetEnd = properties.bookingEnd();
+        LocalDateTime targetStart = properties.bookingStart(clock);
+        LocalDateTime targetEnd = targetStart.plus(properties.bookingDuration());
 
         bookingSchedulePlanner.validateDuration(
                 properties.bookingDuration(),
@@ -127,7 +129,7 @@ public class StartupBookingRunner implements ApplicationRunner {
     private void validateProperties() {
         requireNonBlank(properties.getMeetingName(), "room-booker.meeting-name");
         requireNonBlank(properties.effectiveRoomReference(), "room-booker.room (or room-booker.room-email)");
-        requireNonBlank(properties.getStart(), "room-booker.start");
+        requireNonBlank(properties.getTime(), "room-booker.time");
         if (properties.getDuration() == null || properties.getDuration().isBlank()) {
             throw new IllegalStateException(
                     "Missing or invalid property: room-booker.duration (e.g. 90m, 1h, 1h30m)"

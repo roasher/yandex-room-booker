@@ -1,11 +1,18 @@
 package ru.yandex.roombooker.config;
 
+import java.time.Clock;
+import java.time.DateTimeException;
+import java.time.DayOfWeek;
 import java.time.Duration;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
-import java.time.format.DateTimeParseException;
+import java.time.LocalTime;
+import java.time.ZoneId;
+import java.time.temporal.TemporalAdjusters;
 
 import lombok.Getter;
 import lombok.Setter;
+import org.jspecify.annotations.Nullable;
 
 /**
  * Shared settings for automatic room booking on startup.
@@ -22,7 +29,9 @@ public abstract class RoomBookerProperties {
     private String meetingName;
     private String room;
     private String roomEmail;
-    private String start;
+    private @Nullable String date;
+    private @Nullable Integer dayOfWeek;
+    private String time;
     private String duration;
     private String bookingOpenBuffer;
     private String slotShiftStep;
@@ -52,12 +61,64 @@ public abstract class RoomBookerProperties {
         return roomEmail;
     }
 
-    public LocalDateTime bookingStart() {
-        return parseDateTime(start);
+    /**
+     * Combines the configured time with an ISO date or the next ISO weekday (1 = Monday, 7 = Sunday).
+     * At least one of date and day-of-week is required; when both are set, they must agree.
+     * The next weekday is strictly after today, even if the requested time is still ahead today.
+     */
+    public LocalDateTime bookingStart(Clock clock) {
+        requireNonBlank(time, "room-booker.time");
+        LocalDate bookingDate = resolveBookingDate(clock);
+        try {
+            return bookingDate.atTime(LocalTime.parse(time.strip()));
+        } catch (DateTimeException exception) {
+            throw new IllegalStateException(
+                    "Invalid room-booker.time '%s', expected HH:mm or HH:mm:ss".formatted(time),
+                    exception
+            );
+        }
     }
 
-    public LocalDateTime bookingEnd() {
-        return bookingStart().plus(bookingDuration());
+    private LocalDate resolveBookingDate(Clock clock) {
+        if (dayOfWeek != null && (dayOfWeek < 1 || dayOfWeek > 7)) {
+            throw new IllegalStateException(
+                    "Invalid room-booker.day-of-week '%s', expected an integer from 1 (Monday) to 7 (Sunday)"
+                            .formatted(dayOfWeek)
+            );
+        }
+        if (date != null && !date.isBlank()) {
+            LocalDate bookingDate;
+            try {
+                bookingDate = LocalDate.parse(date.strip());
+            } catch (DateTimeException exception) {
+                throw new IllegalStateException(
+                        "Invalid room-booker.date '%s', expected YYYY-MM-DD like 2026-06-22".formatted(date),
+                        exception
+                );
+            }
+            if (dayOfWeek != null && bookingDate.getDayOfWeek().getValue() != dayOfWeek) {
+                throw new IllegalStateException(
+                        "room-booker.date '%s' is %s (%d), but room-booker.day-of-week is %d".formatted(
+                                bookingDate,
+                                bookingDate.getDayOfWeek(),
+                                bookingDate.getDayOfWeek().getValue(),
+                                dayOfWeek
+                        )
+                );
+            }
+            return bookingDate;
+        }
+        if (dayOfWeek == null) {
+            throw new IllegalStateException(
+                    "At least one of room-booker.date or room-booker.day-of-week is required"
+            );
+        }
+        LocalDate today = LocalDate.now(clock.withZone(ZoneId.of(timeZone)));
+        return today.with(TemporalAdjusters.next(DayOfWeek.of(dayOfWeek)));
+    }
+
+    public LocalDateTime bookingEnd(Clock clock) {
+        return bookingStart(clock).plus(bookingDuration());
     }
 
     public Duration bookingDuration() {
@@ -80,17 +141,6 @@ public abstract class RoomBookerProperties {
             return Duration.ZERO;
         }
         return DurationParsing.parse(bookingRetryBackoff);
-    }
-
-    private static LocalDateTime parseDateTime(String value) {
-        try {
-            return LocalDateTime.parse(value);
-        } catch (DateTimeParseException exception) {
-            throw new IllegalStateException(
-                    "Invalid datetime '%s', expected ISO-8601 like 2026-06-22T14:00:00".formatted(value),
-                    exception
-            );
-        }
     }
 
     protected static void requireNonBlank(String value, String propertyName) {
