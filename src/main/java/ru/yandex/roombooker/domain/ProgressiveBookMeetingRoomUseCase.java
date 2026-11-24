@@ -47,8 +47,30 @@ public class ProgressiveBookMeetingRoomUseCase {
             String timeZone,
             @Nullable MeetingRoomEntry catalogEntry
     ) throws InterruptedException {
+        return execute(meetingName, roomExchange, targetStart, duration, timeZone, catalogEntry, List.of());
+    }
+
+    /**
+     * Books one target without using temporary windows that overlap any other requested target.
+     * Other targets must be non-overlapping with this target.
+     */
+    public CreatedEvent execute(
+            String meetingName,
+            String roomExchange,
+            LocalDateTime targetStart,
+            Duration duration,
+            String timeZone,
+            @Nullable MeetingRoomEntry catalogEntry,
+            List<BookingSlot> otherTargets
+    ) throws InterruptedException {
         Duration step = properties.resolvedSlotShiftStep();
-        List<BookingSlot> ladder = bookingLadderPlanner.buildLadder(targetStart, duration, step);
+        List<BookingSlot> fullLadder = bookingLadderPlanner.buildLadder(targetStart, duration, step);
+        if (otherTargets.stream().anyMatch(fullLadder.getLast()::overlaps)) {
+            throw new IllegalArgumentException("Requested booking slots must not overlap");
+        }
+        List<BookingSlot> ladder = fullLadder.stream()
+                .filter(slot -> otherTargets.stream().noneMatch(slot::overlaps))
+                .toList();
         BookingSlot target = ladder.getLast();
 
         HeldBooking held = discoverHeldBooking(meetingName, roomExchange, ladder, timeZone);
@@ -171,7 +193,8 @@ public class ProgressiveBookMeetingRoomUseCase {
 
         return events.stream()
                 .filter(event -> meetingName.equals(event.summary()))
-                .filter(event -> event.hasRoom(roomExchange) || event.roomReferences().isEmpty())
+                // A concurrently created event may not have its room attached yet; never claim it for another room.
+                .filter(event -> event.hasRoom(roomExchange))
                 .filter(event -> matchesLadderSlot(event, ladder))
                 .max(Comparator.comparing(ExistingEvent::start))
                 .map(event -> new HeldBooking(

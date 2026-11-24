@@ -15,7 +15,7 @@ import org.springframework.stereotype.Component;
 @Slf4j
 @Component
 @RequiredArgsConstructor
-@ConditionalOnProperty(prefix = "room-booker", name = "booking-mode", havingValue = "browser")
+@ConditionalOnProperty(prefix = "room-booker-settings", name = "booking-mode", havingValue = "browser")
 public class CalendarWebResponseParser {
 
     private final ObjectMapper objectMapper;

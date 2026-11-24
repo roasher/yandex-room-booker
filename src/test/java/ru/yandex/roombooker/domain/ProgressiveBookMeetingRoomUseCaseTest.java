@@ -20,6 +20,8 @@ import java.util.List;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
@@ -132,6 +134,44 @@ class ProgressiveBookMeetingRoomUseCaseTest {
                 .summary(MEETING)
                 .roomEmail(ROOM + "@yandex-team.ru")
                 .build());
+        verify(calendarEventGateway, never()).updateEventTime(any(), any(), any(), any());
+    }
+
+    @Test
+    void shouldSkipTemporaryWindowsThatWouldBlockAnotherRequestedSlot() throws InterruptedException {
+        BookingSlot otherTarget = slot("2026-08-13T18:30:00", "2026-08-13T19:00:00");
+        when(bookMeetingRoomUseCase.execute(request(ladder.getLast()))).thenReturn(created("event-2"));
+
+        CreatedEvent actual = useCase.execute(
+                MEETING, ROOM, TARGET_START, DURATION, TZ, catalogEntry, List.of(otherTarget)
+        );
+
+        assertThat(actual).isEqualTo(new CreatedEvent("event-2", MEETING, ROOM + "@yandex-team.ru"));
+        verify(bookMeetingRoomUseCase, never()).execute(request(ladder.getFirst()));
+        verify(calendarEventGateway, never()).updateEventTime(any(), any(), any(), any());
+        verify(bookingWaiter).waitUntil(TARGET_START);
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"", "conf_other"})
+    void shouldNotReuseAnEventWithoutTheRequestedRoom(String roomReference) throws InterruptedException {
+        when(calendarEventGateway.findEvents(any(), any(), any())).thenReturn(List.of(
+                ExistingEvent.builder()
+                        .eventId("another-booking")
+                        .summary(MEETING)
+                        .start(ladder.getLast().start())
+                        .end(ladder.getLast().end())
+                        .roomReferences(roomReference.isEmpty() ? List.of() : List.of(roomReference))
+                        .build()
+        ));
+        when(bookingSchedulePlanner.bookingWindowOpensAt(any(), any(), any()))
+                .thenReturn(LocalDateTime.parse("2000-01-01T00:00"));
+        when(bookMeetingRoomUseCase.execute(request(ladder.getLast()))).thenReturn(created("new-booking"));
+
+        CreatedEvent actual = useCase.execute(MEETING, ROOM, TARGET_START, DURATION, TZ, catalogEntry);
+
+        assertThat(actual).isEqualTo(new CreatedEvent("new-booking", MEETING, ROOM + "@yandex-team.ru"));
+        verify(bookMeetingRoomUseCase).execute(request(ladder.getLast()));
         verify(calendarEventGateway, never()).updateEventTime(any(), any(), any(), any());
     }
 

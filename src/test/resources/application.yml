@@ -1,6 +1,8 @@
-room-booker:
-  enabled: false
+room-booker: []
+
+room-booker-settings:
   booking-mode: api
+  time-zone: Europe/Moscow
   oauth-token: test-token
   booking-open-buffer: 30s
   slot-shift-step: 30m

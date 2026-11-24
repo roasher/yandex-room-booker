@@ -38,7 +38,7 @@ import ru.yandex.roombooker.domain.model.ExistingEvent;
 @Slf4j
 @Component
 @RequiredArgsConstructor
-@ConditionalOnProperty(prefix = "room-booker", name = "booking-mode", havingValue = "browser")
+@ConditionalOnProperty(prefix = "room-booker-settings", name = "booking-mode", havingValue = "browser")
 public class CalendarWebApiClient implements CalendarEventGateway {
 
     private static final DateTimeFormatter API_DATE_TIME = DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm:ss");

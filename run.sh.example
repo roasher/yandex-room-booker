@@ -6,12 +6,18 @@ set -euo pipefail
 #   browser — Web UI API; needs YANDEX_CALENDAR_COOKIES (full Cookie header, like EVENTS_API_COOKIES)
 #             ckey/uid are fetched automatically. Prefer for debugging detailed errors.
 #
-# Rooms: see src/main/resources/rooms.yml
+# Each room-booker entry has one room and its own slots. See src/main/resources/rooms.yml.
+# enabled and meeting-name are set independently for every entry.
 # Duration: 90m, 1h, 1h30m
-# Date: ISO date ("2026-06-22"). Day-of-week: integer (1 = Monday, ..., 7 = Sunday).
+# Date: ISO date ("2026-12-03"). Replace the example dates/times below with your desired bookings.
+# Day-of-week: integer (1 = Monday, ..., 7 = Sunday), as an alternative to date.
 # At least one is required. If both are set, the date must fall on the specified day-of-week.
-# Without date, day-of-week selects its next occurrence after today, in room-booker.time-zone.
+# Without date, day-of-week selects its next occurrence after today, in room-booker-settings.time-zone.
 # Time: HH:mm or HH:mm:ss, e.g. "14:00".
+# All dates/times use room-booker-settings.time-zone (Europe/Moscow by default), regardless of computer time zone.
+# Every entry in slots is booked independently; a failure does not stop the other slots.
+# Duration is shared unless an entry overrides it. Slots must not overlap.
+# Date/day-of-week/time belong inside slots, even when there is only one slot.
 # Lines starting with # (after optional whitespace) are ignored inside the configuration block.
 
 export ROOM_BOOKER_BOOKING_MODE="browser"
@@ -23,15 +29,42 @@ export YANDEX_CALENDAR_COOKIES="gdpr=0; Session_id=...; sessionid2=...; ..."
 
 export SPRING_APPLICATION_JSON="$(sed '/^[[:space:]]*#/d' <<EOF
 {
-  "room-booker": {
-    "enabled": true,
-    "meeting-name": "D",
-    "room": "stroganov-yoga",
-#    "date": "2026-10-05",
-    "day-of-week": 1,
-    "time": "14:00",
-    "duration": "1h30m"
-  }
+  "room-booker-settings": {
+    "time-zone": "Europe/Moscow"
+  },
+  "room-booker": [
+    {
+      "enabled": true,
+      "meeting-name": "Yoga",
+      "room": "stroganov-yoga",
+      "duration": "1h30m",
+      "slots": [
+#        Exact date: 1 December 2026 at 14:00 Moscow time.
+        {
+          "date": "2026-12-01",
+          "time": "14:00"
+        },
+#        Weekday: next Monday after today at 14:00 Moscow time.
+        {
+          "day-of-week": 1,
+          "time": "14:00",
+          "duration": "1h"
+        }
+      ]
+    },
+    {
+      "enabled": true,
+      "meeting-name": "Music",
+      "room": "lotte-music",
+      "duration": "1h",
+      "slots": [
+        {
+          "date": "2026-12-04",
+          "time": "18:30"
+        }
+      ]
+    }
+  ]
 }
 EOF
 )"

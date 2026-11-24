@@ -26,7 +26,7 @@ import ru.yandex.roombooker.config.BrowserRoomBookerProperties;
 @Slf4j
 @Component
 @RequiredArgsConstructor
-@ConditionalOnProperty(prefix = "room-booker", name = "booking-mode", havingValue = "browser")
+@ConditionalOnProperty(prefix = "room-booker-settings", name = "booking-mode", havingValue = "browser")
 public class CalendarWebSessionResolver {
 
     private static final String MODELS_PATH = "/api/models";

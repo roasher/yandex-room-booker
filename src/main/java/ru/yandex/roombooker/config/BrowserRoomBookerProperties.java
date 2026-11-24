@@ -12,7 +12,7 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
  */
 @Getter
 @Setter
-@ConfigurationProperties(prefix = "room-booker")
+@ConfigurationProperties(prefix = "room-booker-settings")
 public class BrowserRoomBookerProperties extends RoomBookerProperties {
 
     private String webBaseUrl;
