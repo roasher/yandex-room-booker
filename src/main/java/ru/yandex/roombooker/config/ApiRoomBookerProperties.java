@@ -9,7 +9,7 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
  */
 @Getter
 @Setter
-@ConfigurationProperties(prefix = "room-booker")
+@ConfigurationProperties(prefix = "room-booker-settings")
 public class ApiRoomBookerProperties extends RoomBookerProperties {
 
     private String apiBaseUrl;

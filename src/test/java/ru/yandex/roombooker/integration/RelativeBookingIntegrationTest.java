@@ -29,16 +29,17 @@ import ru.yandex.roombooker.integration.support.MutableClock;
 
 @SpringBootTest(properties = {
         "spring.main.allow-bean-definition-overriding=true",
-        "room-booker.enabled=true",
-        "room-booker.booking-mode=api",
-        "room-booker.oauth-token=test-token",
-        "room-booker.meeting-name=Next Monday meeting",
-        "room-booker.room=test-room",
-        "room-booker.time-zone=Europe/Moscow",
-        "room-booker.time=18:30",
-        "room-booker.duration=1h",
-        "room-booker.slot-shift-step=30m",
-        "room-booker.booking-open-buffer=0s",
+        "room-booker[0].enabled=true",
+        "room-booker-settings.booking-mode=api",
+        "room-booker-settings.oauth-token=test-token",
+        "room-booker[0].meeting-name=Next Monday meeting",
+        "room-booker[0].room=test-room",
+        "room-booker-settings.time-zone=Europe/Moscow",
+        "room-booker[0].slots[0].time=18:30",
+        "room-booker[0].slots[0].day-of-week=1",
+        "room-booker[0].duration=1h",
+        "room-booker-settings.slot-shift-step=30m",
+        "room-booker-settings.booking-open-buffer=0s",
         "room-catalog.rooms.test-room.display-name=Test room",
         "room-catalog.rooms.test-room.exchange=conf_test",
         "room-catalog.rooms.test-room.max-duration=1h",
@@ -54,8 +55,7 @@ class RelativeBookingIntegrationTest {
 
     @DynamicPropertySource
     static void registerProperties(DynamicPropertyRegistry registry) {
-        registry.add("room-booker.api-base-url", () -> SERVER.url("/").toString());
-        registry.add("room-booker.day-of-week", () -> 1);
+        registry.add("room-booker-settings.api-base-url", () -> SERVER.url("/").toString());
     }
 
     @AfterAll

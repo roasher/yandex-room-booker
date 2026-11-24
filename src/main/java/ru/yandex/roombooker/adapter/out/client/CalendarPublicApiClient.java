@@ -39,7 +39,9 @@ import ru.yandex.roombooker.domain.model.ExistingEvent;
 @Slf4j
 @Component
 @RequiredArgsConstructor
-@ConditionalOnProperty(prefix = "room-booker", name = "booking-mode", havingValue = "api", matchIfMissing = true)
+@ConditionalOnProperty(
+        prefix = "room-booker-settings", name = "booking-mode", havingValue = "api", matchIfMissing = true
+)
 public class CalendarPublicApiClient implements CalendarEventGateway {
 
     private static final DateTimeFormatter API_DATE_TIME = DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm:ss");
@@ -358,7 +360,7 @@ public class CalendarPublicApiClient implements CalendarEventGateway {
             return properties.getOauthToken();
         }
         throw new CalendarApiException(
-                "OAuth token is not configured. Set YANDEX_CALENDAR_OAUTH_TOKEN or room-booker.oauth-token"
+                "OAuth token is not configured. Set YANDEX_CALENDAR_OAUTH_TOKEN or room-booker-settings.oauth-token"
         );
     }
 

@@ -79,16 +79,15 @@ class ProgressiveBookingIntegrationTest {
 
     @DynamicPropertySource
     static void registerProperties(DynamicPropertyRegistry registry) {
-        registry.add("room-booker.enabled", () -> "false");
-        registry.add("room-booker.booking-mode", () -> "api");
-        registry.add("room-booker.api-base-url", () -> mockWebServer.url("/").toString().replaceAll("/$", ""));
-        registry.add("room-booker.oauth-token", () -> "test-token");
-        registry.add("room-booker.time-zone", () -> "Europe/Moscow");
-        registry.add("room-booker.slot-shift-step", () -> "30m");
-        registry.add("room-booker.booking-open-buffer", () -> "0s");
-        registry.add("room-booker.booking-max-retries", () -> "0");
-        registry.add("room-booker.booking-retry-backoff", () -> "0s");
-        registry.add("room-booker.booking-retry-multiplier", () -> "1");
+        registry.add("room-booker-settings.booking-mode", () -> "api");
+        registry.add("room-booker-settings.api-base-url", () -> mockWebServer.url("/").toString().replaceAll("/$", ""));
+        registry.add("room-booker-settings.oauth-token", () -> "test-token");
+        registry.add("room-booker-settings.time-zone", () -> "Europe/Moscow");
+        registry.add("room-booker-settings.slot-shift-step", () -> "30m");
+        registry.add("room-booker-settings.booking-open-buffer", () -> "0s");
+        registry.add("room-booker-settings.booking-max-retries", () -> "0");
+        registry.add("room-booker-settings.booking-retry-backoff", () -> "0s");
+        registry.add("room-booker-settings.booking-retry-multiplier", () -> "1");
     }
 
     @BeforeEach
