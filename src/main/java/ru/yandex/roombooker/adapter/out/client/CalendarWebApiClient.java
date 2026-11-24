@@ -51,6 +51,25 @@ public class CalendarWebApiClient implements CalendarEventGateway {
     private final CalendarWebSessionResolver sessionResolver;
 
     @Override
+    public void verifyAccess(LocalDateTime from, LocalDateTime to, String timeZone) {
+        try {
+            sessionResolver.ensureSession();
+            JsonNode data = invokeModel("get-events", Map.of(
+                    "from", from.format(API_DATE_TIME), "to", to.format(API_DATE_TIME), "tz", timeZone
+            ));
+            if (!data.isArray() && !data.path("events").isArray() && !data.path("items").isArray()) {
+                throw new CalendarApiException("Calendar web API returned an invalid event-list response");
+            }
+        } catch (RuntimeException failure) {
+            throw new IllegalStateException(
+                    "Could not verify Calendar browser access. Check YANDEX_CALENDAR_COOKIES "
+                            + "and Calendar connectivity; refresh the cookies if the session has expired. "
+                            + "Startup stopped before any booking attempts.", failure
+            );
+        }
+    }
+
+    @Override
     public boolean booksRoomDuringCreate() {
         return true;
     }

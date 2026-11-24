@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.lenient;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -125,6 +126,30 @@ class CalendarWebApiClientTest {
     @Test
     void shouldBooksRoomDuringCreate() {
         assertThat(client.booksRoomDuringCreate()).isTrue();
+    }
+
+    @Test
+    void shouldVerifyBrowserAuthenticationWithAReadOnlyCalendarRequest() {
+        when(responseSpec.body(String.class)).thenReturn("""
+                {"models":[{"name":"get-events","status":"ok","data":{"events":[]}}]}
+                """);
+        BookingRequest request = bookingRequest();
+
+        client.verifyAccess(request.start(), request.end(), request.timeZone());
+
+        verify(sessionResolver).ensureSession();
+        verify(requestBodyUriSpec).uri("/api/models?_models=get-events");
+    }
+
+    @Test
+    void shouldStopStartupWhenBrowserCredentialsHaveExpired() {
+        when(sessionResolver.ensureSession()).thenThrow(new CalendarApiException("Session rejected"));
+        BookingRequest request = bookingRequest();
+
+        assertThatThrownBy(() -> client.verifyAccess(request.start(), request.end(), request.timeZone()))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContainingAll("YANDEX_CALENDAR_COOKIES", "Startup stopped before any booking attempts");
+        verifyNoInteractions(calendarRestClient);
     }
 
     @Test

@@ -13,6 +13,7 @@ import org.springframework.stereotype.Component;
 import ru.yandex.roombooker.config.BookingPlansProperties;
 import ru.yandex.roombooker.config.RoomBookerProperties;
 import ru.yandex.roombooker.domain.BookMeetingRoomSlotsUseCase;
+import ru.yandex.roombooker.domain.VerifyCalendarAccessUseCase;
 import ru.yandex.roombooker.domain.model.BookingPlan;
 
 /**
@@ -26,6 +27,7 @@ public class StartupBookingRunner implements ApplicationRunner {
     private final RoomBookerProperties properties;
     private final BookingPlansProperties bookingPlansProperties;
     private final BookMeetingRoomSlotsUseCase bookMeetingRoomSlotsUseCase;
+    private final VerifyCalendarAccessUseCase verifyCalendarAccessUseCase;
     private final Clock clock;
 
     @Override
@@ -40,6 +42,7 @@ public class StartupBookingRunner implements ApplicationRunner {
         ZoneId.of(properties.getTimeZone());
         properties.validateAuth();
         log.info("Booking mode: {}, time zone: {}", properties.bookingMode(), properties.getTimeZone());
+        verifyCalendarAccessUseCase.execute();
         bookMeetingRoomSlotsUseCase.execute(plans, properties.getTimeZone());
     }
 

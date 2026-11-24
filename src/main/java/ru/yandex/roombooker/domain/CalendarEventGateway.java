@@ -13,6 +13,12 @@ import ru.yandex.roombooker.domain.model.ExistingEvent;
 public interface CalendarEventGateway {
 
     /**
+     * Verifies credentials and read access with read-only requests before booking workers start.
+     * The short interval bounds any event-list probe; no events are created or changed.
+     */
+    void verifyAccess(LocalDateTime from, LocalDateTime to, String timeZone);
+
+    /**
      * When {@code true}, the room is booked inside {@link #createEvent} (browser UI path).
      * Callers should retry create instead of a separate attach step.
      */

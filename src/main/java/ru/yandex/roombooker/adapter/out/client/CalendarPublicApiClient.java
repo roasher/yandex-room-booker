@@ -24,6 +24,7 @@ import org.springframework.http.HttpStatusCode;
 import org.springframework.http.MediaType;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
+import org.springframework.web.client.RestClientException;
 import org.springframework.web.util.UriComponentsBuilder;
 import ru.yandex.roombooker.adapter.out.client.dto.AddRoomsToEventRequest;
 import ru.yandex.roombooker.adapter.out.client.dto.CreateEventRequest;
@@ -57,6 +58,47 @@ public class CalendarPublicApiClient implements CalendarEventGateway {
     private final RestClient calendarRestClient;
     private final ApiRoomBookerProperties properties;
     private final ObjectMapper objectMapper;
+
+    @Override
+    public void verifyAccess(LocalDateTime from, LocalDateTime to, String timeZone) {
+        String eventsUri = UriComponentsBuilder.fromPath("/v1/calendar/events")
+                .queryParam("from", toQueryDateTime(from, ZoneId.of(timeZone)))
+                .queryParam("to", toQueryDateTime(to, ZoneId.of(timeZone)))
+                .queryParam("time_zone", timeZone)
+                .queryParam("limit", 1)
+                .build().encode().toUriString();
+        verifyReadAccess(eventsUri, false);
+        log.info("OAuth token accepted by Calendar events API; checking room-directory access");
+        verifyReadAccess("/v1/calendar/rooms?limit=1", true);
+    }
+
+    private void verifyReadAccess(String uri, boolean tokenAccepted) {
+        try {
+            pageItems(getJson(resolveOAuthToken(), uri, JsonNode.class));
+        } catch (CalendarApiException failure) {
+            Integer status = failure.httpStatus();
+            String message;
+            if (Integer.valueOf(401).equals(status) && !tokenAccepted) {
+                message = "OAuth token was rejected (HTTP 401). It may be expired, revoked or invalid. "
+                        + "Update YANDEX_CALENDAR_OAUTH_TOKEN and restart.";
+            } else if (tokenAccepted && (Integer.valueOf(401).equals(status) || Integer.valueOf(403).equals(status))) {
+                message = "OAuth token was accepted by Calendar events API, but room-directory access was rejected "
+                        + "(HTTP " + status + "). Check endpoint availability and calendar:resources.read "
+                        + "or calendar:read_all permissions; this does not establish that the token has expired.";
+            } else if (Integer.valueOf(403).equals(status)) {
+                message = "Calendar read access was denied (HTTP 403). Check the OAuth token's Calendar permissions.";
+            } else {
+                message = "Calendar startup access check failed" + (status == null ? "" : " (HTTP " + status + ")")
+                        + ". Token validity could not be confirmed; check Calendar connectivity and configuration.";
+            }
+            throw new IllegalStateException(message + " Startup stopped before any booking attempts.", failure);
+        } catch (RestClientException failure) {
+            throw new IllegalStateException(
+                    "Could not contact Calendar to verify access. Token validity could not be confirmed. "
+                            + "Startup stopped before any booking attempts.", failure
+            );
+        }
+    }
 
     @Override
     public CreatedEvent createEvent(BookingRequest request) {

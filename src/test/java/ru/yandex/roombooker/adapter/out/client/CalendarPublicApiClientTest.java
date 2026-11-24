@@ -1,10 +1,12 @@
 package ru.yandex.roombooker.adapter.out.client;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.lenient;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -13,15 +15,19 @@ import java.nio.charset.StandardCharsets;
 import java.time.LocalDateTime;
 import java.util.function.Predicate;
 
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
+import org.springframework.web.client.ResourceAccessException;
 import org.springframework.web.client.RestClient;
 import ru.yandex.roombooker.adapter.out.client.dto.CreateEventResponse;
 import ru.yandex.roombooker.config.ApiRoomBookerProperties;
@@ -39,6 +45,10 @@ class CalendarPublicApiClientTest {
     private RestClient.RequestBodySpec requestBodySpec;
     @Mock
     private RestClient.ResponseSpec responseSpec;
+    @Mock
+    private RestClient.RequestHeadersUriSpec<?> requestHeadersUriSpec;
+    @Mock
+    private RestClient.RequestHeadersSpec<?> requestHeadersSpec;
 
     private CalendarPublicApiClient client;
 
@@ -129,8 +139,39 @@ class CalendarPublicApiClientTest {
                 .contains("\"participant_can_edit\":true");
     }
 
+    @ParameterizedTest
+    @CsvSource({
+            "401,OAuth token was rejected",
+            "403,Calendar read access was denied",
+            "503,Token validity could not be confirmed"
+    })
+    void shouldExplainStartupAuthenticationFailuresWithoutStartingBookings(int status, String expected) {
+        when(responseSpec.body(JsonNode.class)).thenThrow(new CalendarApiException("test failure", status));
+
+        assertThatThrownBy(() -> client.verifyAccess(
+                LocalDateTime.parse("2026-11-24T10:00"), LocalDateTime.parse("2026-11-24T10:01"), "Europe/Moscow"
+        )).isInstanceOf(IllegalStateException.class).hasMessageContaining(expected);
+        verify(calendarRestClient, never()).post();
+        verify(calendarRestClient, never()).patch();
+    }
+
+    @Test
+    void shouldReportNetworkFailureWithoutClaimingTheTokenExpired() {
+        when(responseSpec.body(JsonNode.class)).thenThrow(new ResourceAccessException("connection timed out"));
+
+        assertThatThrownBy(() -> client.verifyAccess(
+                LocalDateTime.parse("2026-11-24T10:00"), LocalDateTime.parse("2026-11-24T10:01"), "Europe/Moscow"
+        )).isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("Could not contact Calendar")
+                .hasMessageContaining("Token validity could not be confirmed");
+    }
+
     @SuppressWarnings("unchecked")
     private void stubRequestChain() {
+        lenient().doReturn(requestHeadersUriSpec).when(calendarRestClient).get();
+        lenient().doReturn(requestHeadersSpec).when(requestHeadersUriSpec).uri(any(URI.class));
+        lenient().doReturn(requestHeadersSpec).when(requestHeadersSpec).header(anyString(), anyString());
+        lenient().when(requestHeadersSpec.retrieve()).thenReturn(responseSpec);
         lenient().when(calendarRestClient.post()).thenReturn(requestBodyUriSpec);
         lenient().when(calendarRestClient.patch()).thenReturn(requestBodyUriSpec);
         lenient().when(requestBodyUriSpec.uri(anyString())).thenReturn(requestBodySpec);
