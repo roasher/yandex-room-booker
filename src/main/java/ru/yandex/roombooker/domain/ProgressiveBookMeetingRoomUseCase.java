@@ -5,6 +5,7 @@ import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.Comparator;
 import java.util.List;
+import java.util.stream.Collectors;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -88,6 +89,8 @@ public class ProgressiveBookMeetingRoomUseCase {
                     .build();
         }
 
+        ensureTargetAvailable(roomExchange, target, timeZone, held);
+
         int startIndex = firstDueLadderIndex(ladder, catalogEntry);
         if (startIndex > 0) {
             log.info(
@@ -148,6 +151,39 @@ public class ProgressiveBookMeetingRoomUseCase {
                 .summary(meetingName)
                 .roomEmail(RoomResolver.toEmail(roomExchange))
                 .build();
+    }
+
+    private void ensureTargetAvailable(
+            String roomExchange, BookingSlot target, String timeZone, @Nullable HeldBooking held
+    ) {
+        List<ExistingEvent> events;
+        try {
+            log.info("Checking room {} for existing meetings at target {}–{} ({}) before waiting or booking",
+                    roomExchange, target.start(), target.end(), timeZone);
+            events = calendarEventGateway.findRoomEvents(roomExchange, target.start(), target.end(), timeZone);
+        } catch (RuntimeException failure) {
+            throw new IllegalStateException(
+                    "Could not check room availability; no ladder attempts will be made: " + failure.getMessage(),
+                    failure
+            );
+        }
+        String conflicts = events.stream()
+                .filter(event -> held == null || !held.eventId().equals(event.eventId()))
+                .filter(event -> event.start().isBefore(target.end()) && target.start().isBefore(event.end()))
+                .map(event -> "%s%s–%s (eventId=%s)".formatted(
+                        event.summary().isBlank() ? "" : "'" + event.summary() + "' ",
+                        event.start(), event.end(), event.eventId()))
+                .collect(Collectors.joining("; "));
+        if (!conflicts.isEmpty()) {
+            String retained = held == null ? "" : " Existing held booking remains at %s–%s (eventId=%s)."
+                    .formatted(held.slot().start(), held.slot().end(), held.eventId());
+            throw new IllegalStateException(
+                    ("Room %s is already occupied during target %s–%s (%s) by: %s. "
+                            + "Cannot book this slot unless the blocking meeting is cancelled or moved. "
+                            + "Skipping waiting, retries and the booking ladder.%s")
+                            .formatted(roomExchange, target.start(), target.end(), timeZone, conflicts, retained)
+            );
+        }
     }
 
     /**

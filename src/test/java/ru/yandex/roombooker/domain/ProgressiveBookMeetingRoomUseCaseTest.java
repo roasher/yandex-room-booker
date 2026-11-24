@@ -8,6 +8,7 @@ import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 import java.time.Clock;
@@ -22,6 +23,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
@@ -328,6 +330,82 @@ class ProgressiveBookMeetingRoomUseCaseTest {
         assertThatThrownBy(() -> useCase.execute(MEETING, ROOM, TARGET_START, DURATION, TZ, catalogEntry))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("could not create any ladder slot");
+    }
+
+    @ParameterizedTest
+    @CsvSource({
+            "18:30,19:01", "19:59,20:30", "19:15,19:30", "18:00,21:00", "19:00,20:00"
+    })
+    void shouldStopBeforeWaitingWhenAnotherMeetingBlocksAnyPartOfTarget(String start, String end) {
+        when(calendarEventGateway.findRoomEvents(ROOM, TARGET_START, TARGET_START.plus(DURATION), TZ))
+                .thenReturn(List.of(roomEvent("admin-1", "Administrator meeting", start, end)));
+
+        assertThatThrownBy(() -> useCase.execute(MEETING, ROOM, TARGET_START, DURATION, TZ, catalogEntry))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContainingAll("already occupied", "Administrator meeting", "eventId=admin-1",
+                        "cancelled or moved", "Skipping waiting", TZ);
+
+        verifyNoInteractions(bookingWaiter, bookMeetingRoomUseCase);
+        verify(calendarEventGateway, never()).updateEventTime(any(), any(), any(), any());
+    }
+
+    @Test
+    void shouldAllowAdjacentMeetingsAndConflictsOutsideTheTarget() throws InterruptedException {
+        when(calendarEventGateway.findRoomEvents(ROOM, TARGET_START, TARGET_START.plus(DURATION), TZ))
+                .thenReturn(List.of(
+                        roomEvent("before", "Earlier meeting", "18:00", "19:00"),
+                        roomEvent("after", "Later meeting", "20:00", "21:00")
+                ));
+        when(bookMeetingRoomUseCase.execute(request(ladder.getFirst()))).thenReturn(created("new-1"));
+        when(calendarEventGateway.updateEventTime("new-1", TARGET_START, TARGET_START.plus(DURATION), TZ))
+                .thenReturn(created("new-1"));
+
+        assertThat(useCase.execute(MEETING, ROOM, TARGET_START, DURATION, TZ, catalogEntry))
+                .isEqualTo(new CreatedEvent("new-1", MEETING, ROOM + "@yandex-team.ru"));
+    }
+
+    @Test
+    void shouldExcludeTheHeldEventFromRoomOccupancyWhenResuming() throws InterruptedException {
+        ExistingEvent held = roomEvent("held-1", MEETING, "18:30", "19:30");
+        when(calendarEventGateway.findEvents(any(), any(), any())).thenReturn(List.of(held));
+        when(calendarEventGateway.findRoomEvents(ROOM, TARGET_START, TARGET_START.plus(DURATION), TZ))
+                .thenReturn(List.of(held));
+        when(calendarEventGateway.updateEventTime("held-1", TARGET_START, TARGET_START.plus(DURATION), TZ))
+                .thenReturn(created("held-1"));
+
+        assertThat(useCase.execute(MEETING, ROOM, TARGET_START, DURATION, TZ, catalogEntry))
+                .isEqualTo(new CreatedEvent("held-1", MEETING, ROOM + "@yandex-team.ru"));
+        verifyNoInteractions(bookMeetingRoomUseCase);
+    }
+
+    @Test
+    void shouldRetainAndReportHeldBookingWhenAnotherEventBlocksTheTarget() {
+        ExistingEvent held = roomEvent("held-1", MEETING, "18:30", "19:30");
+        when(calendarEventGateway.findEvents(any(), any(), any())).thenReturn(List.of(held));
+        when(calendarEventGateway.findRoomEvents(ROOM, TARGET_START, TARGET_START.plus(DURATION), TZ))
+                .thenReturn(List.of(held, roomEvent("other-1", "", "19:30", "20:00")));
+
+        assertThatThrownBy(() -> useCase.execute(MEETING, ROOM, TARGET_START, DURATION, TZ, catalogEntry))
+                .hasMessageContainingAll("eventId=other-1", "Existing held booking remains", "eventId=held-1");
+        verifyNoInteractions(bookingWaiter, bookMeetingRoomUseCase);
+        verify(calendarEventGateway, never()).updateEventTime(any(), any(), any(), any());
+        verify(calendarEventGateway, never()).deleteEvent(any());
+    }
+
+    @Test
+    void shouldStopWithoutBookingWhenAvailabilityCannotBeChecked() {
+        when(calendarEventGateway.findRoomEvents(ROOM, TARGET_START, TARGET_START.plus(DURATION), TZ))
+                .thenThrow(new IllegalStateException("permission denied"));
+
+        assertThatThrownBy(() -> useCase.execute(MEETING, ROOM, TARGET_START, DURATION, TZ, catalogEntry))
+                .hasMessageContainingAll("Could not check room availability", "permission denied");
+        verifyNoInteractions(bookingWaiter, bookMeetingRoomUseCase);
+        verify(calendarEventGateway, never()).updateEventTime(any(), any(), any(), any());
+    }
+
+    private static ExistingEvent roomEvent(String id, String summary, String start, String end) {
+        return new ExistingEvent(id, summary,
+                LocalDateTime.parse("2026-08-13T" + start), LocalDateTime.parse("2026-08-13T" + end), List.of(ROOM));
     }
 
     private static BookingRequest request(BookingSlot slot) {

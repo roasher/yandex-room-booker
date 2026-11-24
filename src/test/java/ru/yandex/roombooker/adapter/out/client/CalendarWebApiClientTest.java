@@ -9,12 +9,15 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import java.time.LocalDateTime;
+import java.util.List;
 import java.util.function.Predicate;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
@@ -23,6 +26,7 @@ import org.springframework.web.client.RestClient;
 import ru.yandex.roombooker.config.BrowserRoomBookerProperties;
 import ru.yandex.roombooker.domain.model.BookingRequest;
 import ru.yandex.roombooker.domain.model.CreatedEvent;
+import ru.yandex.roombooker.domain.model.ExistingEvent;
 
 @ExtendWith(MockitoExtension.class)
 class CalendarWebApiClientTest {
@@ -121,6 +125,86 @@ class CalendarWebApiClientTest {
     @Test
     void shouldBooksRoomDuringCreate() {
         assertThat(client.booksRoomDuringCreate()).isTrue();
+    }
+
+    @Test
+    void shouldReadRoomMeetingsFromMayaIntervalsIncludingMergedEvents() throws Exception {
+        when(responseSpec.body(String.class)).thenReturn("""
+                {"models":[{"name":"get-availability-intervals","status":"ok","data":[
+                  {"email":"someone@yandex-team.ru","intervals":[{"eventIds":[99]}]},
+                  {"email":"conf_st_yoga@yandex-team.ru","intervals":[
+                    {"start":"2026-06-22T11:00:00Z","end":"2026-06-22T12:00:00Z","eventIds":[42,43]},
+                    {"start":"2026-06-22T15:00:00.000","end":"2026-06-22T15:30:00.000","eventIds":[]}
+                  ]}
+                ]}]}
+                """);
+        BookingRequest request = bookingRequest();
+
+        assertThat(client.findRoomEvents(request.roomEmail(), request.start(), request.end(), request.timeZone()))
+                .containsExactly(
+                        new ExistingEvent("42", "", request.start(), request.start().plusHours(1),
+                                List.of("conf_st_yoga@yandex-team.ru")),
+                        new ExistingEvent("43", "", request.start(), request.start().plusHours(1),
+                                List.of("conf_st_yoga@yandex-team.ru"))
+                );
+        ArgumentCaptor<String> body = ArgumentCaptor.forClass(String.class);
+        verify(requestBodySpec).body(body.capture());
+        assertThat(OBJECT_MAPPER.readTree(body.getValue())).isEqualTo(OBJECT_MAPPER.readTree("""
+                {"models":[{"name":"get-availability-intervals","params":{
+                  "emails":["conf_st_yoga@yandex-team.ru"],"from":"2026-06-22T14:00:00",
+                  "to":"2026-06-22T15:30:00","tz":"Europe/Moscow","shape":"ids-only"
+                }}]}
+                """));
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"available", "busy", "maybe"})
+    void shouldAcceptAnExplicitlyEmptyRoomScheduleWhenAvailabilityIsReadable(String availability) {
+        when(responseSpec.body(String.class)).thenReturn("""
+                {"models":[{"name":"get-availability-intervals","status":"ok",
+                  "data":[{"email":"conf_st_yoga@yandex-team.ru","intervals":[]}]}]}
+                """, """
+                {"models":[{"name":"get-availabilities","status":"ok",
+                  "data":[{"email":"conf_st_yoga@yandex-team.ru","availability":"%s"}]}]}
+                """.formatted(availability));
+        BookingRequest request = bookingRequest();
+
+        assertThat(client.findRoomEvents(request.roomEmail(), request.start(), request.end(), request.timeZone()))
+                .isEqualTo(List.of());
+    }
+
+    @Test
+    void shouldNotTreatAnInaccessibleRoomAsAnEmptySchedule() {
+        when(responseSpec.body(String.class)).thenReturn("""
+                {"models":[{"name":"get-availability-intervals","status":"ok",
+                  "data":[{"email":"conf_st_yoga@yandex-team.ru","intervals":[]}]}]}
+                """, """
+                {"models":[{"name":"get-availabilities","status":"ok",
+                  "data":[{"email":"conf_st_yoga@yandex-team.ru","availability":"unknown"}]}]}
+                """);
+        BookingRequest request = bookingRequest();
+
+        assertThatThrownBy(() -> client.findRoomEvents(
+                request.roomEmail(), request.start(), request.end(), request.timeZone()
+        )).isInstanceOf(CalendarApiException.class).hasMessageContaining("Cannot read availability");
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {
+            "{}", "[]", "[{\"email\":\"other@yandex-team.ru\",\"intervals\":[]}]",
+            "[{\"email\":\"conf_st_yoga@yandex-team.ru\"}]",
+            "[{\"email\":\"conf_st_yoga@yandex-team.ru\",\"intervals\":[{}]}]",
+            "[{\"email\":\"conf_st_yoga@yandex-team.ru\",\"intervals\":[{\"eventIds\":[42]}]}]"
+    })
+    void shouldNotTreatInvalidOrMissingRoomAvailabilityAsFree(String data) {
+        when(responseSpec.body(String.class)).thenReturn("""
+                {"models":[{"name":"get-availability-intervals","status":"ok","data":%s}]}
+                """.formatted(data));
+        BookingRequest request = bookingRequest();
+
+        assertThatThrownBy(() -> client.findRoomEvents(
+                request.roomEmail(), request.start(), request.end(), request.timeZone()
+        )).isInstanceOf(CalendarApiException.class);
     }
 
     private BookingRequest bookingRequest() {

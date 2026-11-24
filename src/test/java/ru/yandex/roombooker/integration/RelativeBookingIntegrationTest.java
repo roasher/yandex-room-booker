@@ -84,6 +84,17 @@ class RelativeBookingIntegrationTest {
             @Override
             public MockResponse dispatch(RecordedRequest request) {
                 String path = request.getRequestUrl().encodedPath();
+                if ("GET".equals(request.getMethod()) && path.equals("/v1/calendar/rooms")) {
+                    return json("""
+                            {"items":[
+                              {"room_id":"00000000-0000-0000-0000-000000000001","email":"conf_test@yandex-team.ru"},
+                              {"room_id":"00000000-0000-0000-0000-000000000002","email":"conf_other@yandex-team.ru"}
+                            ]}
+                            """);
+                }
+                if ("POST".equals(request.getMethod()) && path.equals("/v1/calendar/free-busy/rooms/search")) {
+                    return json("{\"items\":[]}");
+                }
                 if ("GET".equals(request.getMethod()) && path.equals("/v1/calendar/events")) {
                     return json("{\"items\":[],\"limit\":0}");
                 }

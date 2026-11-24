@@ -191,6 +191,81 @@ public class CalendarWebApiClient implements CalendarEventGateway {
         return List.copyOf(events);
     }
 
+    @Override
+    public List<ExistingEvent> findRoomEvents(
+            String roomReference, LocalDateTime from, LocalDateTime to, String timeZone
+    ) {
+        sessionResolver.ensureSession();
+        String roomEmail = RoomResolver.toEmail(roomReference);
+        // Maya's ids-only filter preserves event IDs; full shapes can replace them with organizer data.
+        JsonNode data = invokeModel("get-availability-intervals", Map.of(
+                "emails", List.of(roomEmail),
+                "from", from.format(API_DATE_TIME),
+                "to", to.format(API_DATE_TIME),
+                "tz", timeZone,
+                "shape", "ids-only"
+        ));
+        if (!data.isArray()) {
+            throw new CalendarApiException("Calendar web API returned invalid room availability");
+        }
+        for (JsonNode subject : data) {
+            if (!roomEmail.equalsIgnoreCase(subject.path("email").asText())) {
+                continue;
+            }
+            JsonNode intervals = subject.path("intervals");
+            if (!intervals.isArray()) {
+                throw new CalendarApiException("Calendar web API returned no room availability intervals");
+            }
+            List<ExistingEvent> events = new ArrayList<>();
+            for (JsonNode interval : intervals) {
+                JsonNode eventIds = interval.path("eventIds");
+                if (!eventIds.isArray()) {
+                    throw new CalendarApiException("Calendar web API returned room availability without eventIds");
+                }
+                // Empty IDs denote temporary reservations, not a confirmed blocking meeting.
+                for (JsonNode eventId : eventIds) {
+                    if (!eventId.isValueNode() || eventId.isNull() || eventId.asText().isBlank()) {
+                        throw new CalendarApiException("Calendar web API returned an invalid availability event ID");
+                    }
+                    events.add(ExistingEvent.builder()
+                            .eventId(eventId.asText())
+                            .summary("")
+                            .start(CalendarDateTimes.parse(interval.path("start").asText(), timeZone, timeZone))
+                            .end(CalendarDateTimes.parse(interval.path("end").asText(), timeZone, timeZone))
+                            .roomReferences(List.of(roomEmail))
+                            .build());
+                }
+            }
+            if (events.isEmpty()) {
+                verifyRoomAvailabilityReadable(roomEmail, from, to, timeZone);
+            }
+            return List.copyOf(events);
+        }
+        throw new CalendarApiException("Calendar web API returned no availability for room " + roomEmail);
+    }
+
+    private void verifyRoomAvailabilityReadable(
+            String roomEmail, LocalDateTime from, LocalDateTime to, String timeZone
+    ) {
+        // Maya's interval filter replaces permission-denied/unknown-room results with empty intervals.
+        JsonNode subjects = invokeModel("get-availabilities", Map.of(
+                "emails", List.of(roomEmail),
+                "start", from.format(API_DATE_TIME),
+                "end", to.format(API_DATE_TIME),
+                "tz", timeZone
+        ));
+        if (subjects.isArray()) {
+            for (JsonNode subject : subjects) {
+                if (roomEmail.equalsIgnoreCase(subject.path("email").asText())
+                        && List.of("available", "busy", "maybe").contains(subject.path("availability").asText())) {
+                    // Busy alone can mean a temporary reservation or a booking restriction, not a confirmed meeting.
+                    return;
+                }
+            }
+        }
+        throw new CalendarApiException("Cannot read availability for room " + roomEmail);
+    }
+
     private List<String> extractAttendees(JsonNode event) {
         JsonNode attendees = event.path("attendees");
         if (!attendees.isArray()) {

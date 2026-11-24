@@ -1,6 +1,7 @@
 package ru.yandex.roombooker.integration;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import java.io.IOException;
 import java.time.Clock;
@@ -13,6 +14,9 @@ import java.util.List;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+
 import okhttp3.mockwebserver.Dispatcher;
 import okhttp3.mockwebserver.MockResponse;
 import okhttp3.mockwebserver.MockWebServer;
@@ -20,6 +24,8 @@ import okhttp3.mockwebserver.RecordedRequest;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.context.TestConfiguration;
@@ -43,6 +49,7 @@ class ProgressiveBookingIntegrationTest {
     private static final String MEETING = "Music practice";
     private static final String ROOM = "cr_000004198";
     private static final String EVENT_ID = "11111111-2222-3333-4444-555555555555";
+    private static final String ROOM_ID = "00000000-0000-0000-0000-000000000001";
 
     private static final MockWebServer mockWebServer = startServer();
     private static final MutableClock mutableClock = new MutableClock(
@@ -51,6 +58,10 @@ class ProgressiveBookingIntegrationTest {
     );
 
     private final List<String> requestLog = new ArrayList<>();
+    private final List<JsonNode> availabilityRequests = new ArrayList<>();
+    private String availabilityJson;
+    private String availabilityNextPage;
+    private boolean paginateRoomList;
     private final AtomicBoolean failFirstCreateAttach = new AtomicBoolean(false);
     private final AtomicBoolean failFirstShift = new AtomicBoolean(false);
     private final AtomicInteger createCount = new AtomicInteger();
@@ -93,6 +104,10 @@ class ProgressiveBookingIntegrationTest {
     @BeforeEach
     void setUp() {
         requestLog.clear();
+        availabilityRequests.clear();
+        availabilityJson = "{\"items\":[]}";
+        availabilityNextPage = null;
+        paginateRoomList = false;
         failFirstCreateAttach.set(false);
         failFirstShift.set(false);
         createCount.set(0);
@@ -128,6 +143,8 @@ class ProgressiveBookingIntegrationTest {
         assertThat(shiftCount.get()).isEqualTo(0);
         assertThat(requestLog).isEqualTo(List.of(
                 "GET /v1/calendar/events",
+                "GET /v1/calendar/rooms",
+                "POST /v1/calendar/free-busy/rooms/search",
                 "POST /v1/calendar/events",
                 "PATCH /v1/calendar/events/" + EVENT_ID + "/rooms"
         ));
@@ -153,6 +170,8 @@ class ProgressiveBookingIntegrationTest {
         assertThat(shiftCount.get()).isEqualTo(1);
         assertThat(requestLog).containsExactly(
                 "GET /v1/calendar/events",
+                "GET /v1/calendar/rooms",
+                "POST /v1/calendar/free-busy/rooms/search",
                 "POST /v1/calendar/events",
                 "PATCH /v1/calendar/events/" + EVENT_ID + "/rooms",
                 "PATCH /v1/calendar/events/" + EVENT_ID
@@ -177,6 +196,8 @@ class ProgressiveBookingIntegrationTest {
         assertThat(shiftCount.get()).isEqualTo(0);
         assertThat(requestLog).isEqualTo(List.of(
                 "GET /v1/calendar/events",
+                "GET /v1/calendar/rooms",
+                "POST /v1/calendar/free-busy/rooms/search",
                 "POST /v1/calendar/events",
                 "PATCH /v1/calendar/events/" + EVENT_ID + "/rooms",
                 "DELETE /v1/calendar/events/" + EVENT_ID,
@@ -245,6 +266,8 @@ class ProgressiveBookingIntegrationTest {
         assertThat(requestLog).containsExactly(
                 "GET /v1/calendar/events",
                 "GET /v1/calendar/events/" + EVENT_ID + "/rooms",
+                "GET /v1/calendar/rooms",
+                "POST /v1/calendar/free-busy/rooms/search",
                 "PATCH /v1/calendar/events/" + EVENT_ID
         );
     }
@@ -296,12 +319,93 @@ class ProgressiveBookingIntegrationTest {
         );
     }
 
+    @Test
+    void shouldRejectAnAdministratorsMeetingBeforeTheBookingWindowOpens() throws Exception {
+        paginateRoomList = true;
+        // The user's own event list is empty. A temporary reservation must not mask the next page.
+        availabilityJson = """
+                {"items":[{"start":{"date":"2026-08-13"},"end":{"date":"2026-08-14"}}],
+                 "iteration_key":"next+/="}
+                """;
+        availabilityNextPage = """
+                {"items":[{"event_id":"admin-event","recurrence_id":"2026-08-13T16:30:00Z",
+                  "start":{"date_time":"2026-08-13T16:30:00","time_zone":"UTC"},
+                  "end":{"date_time":"2026-08-13T17:30:00","time_zone":"UTC"}}]}
+                """;
+
+        assertThatThrownBy(() -> progressiveBookMeetingRoomUseCase.execute(
+                MEETING, ROOM, TARGET_START, DURATION, "Europe/Moscow", catalogEntry()
+        )).hasMessageContainingAll("already occupied", "admin-event", "2026-08-13T19:30", "cancelled or moved");
+
+        assertThat(requestLog).containsExactly(
+                "GET /v1/calendar/events", "GET /v1/calendar/rooms", "GET /v1/calendar/rooms",
+                "POST /v1/calendar/free-busy/rooms/search", "POST /v1/calendar/free-busy/rooms/search"
+        );
+        assertThat(mutableClock.instant()).isEqualTo(Instant.parse("2026-07-30T10:00:00+03:00"));
+        JsonNode expected = new ObjectMapper().readTree("""
+                {"room_id":"%s","from":"2026-08-13T16:00:00Z","to":"2026-08-13T17:00:00Z"}
+                """.formatted(ROOM_ID));
+        assertThat(availabilityRequests).containsExactly(expected, expected);
+    }
+
+    @Test
+    void shouldRejectAnAllDayRoomBooking() {
+        availabilityJson = """
+                {"items":[{"event_id":"all-day","start":{"date":"2026-08-13"},
+                  "end":{"date":"2026-08-14"}}]}
+                """;
+
+        assertThatThrownBy(() -> progressiveBookMeetingRoomUseCase.execute(
+                MEETING, ROOM, TARGET_START, DURATION, "Europe/Moscow", catalogEntry()
+        )).hasMessageContainingAll("already occupied", "all-day");
+        assertThat(List.of(createCount.get(), shiftCount.get())).containsExactly(0, 0);
+        assertThat(mutableClock.instant()).isEqualTo(Instant.parse("2026-07-30T10:00:00+03:00"));
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"{}", "{\"items\":[{\"event_id\":\"missing-times\"}]}",
+            "{\"items\":[],\"iteration_key\":\"repeated\"}"})
+    void shouldStopBeforeWaitingIfAvailabilityResponseIsInvalid(String response) {
+        availabilityJson = response;
+
+        assertThatThrownBy(() -> progressiveBookMeetingRoomUseCase.execute(
+                MEETING, ROOM, TARGET_START, DURATION, "Europe/Moscow", catalogEntry()
+        )).hasMessageContaining("Could not check room availability");
+        assertThat(List.of(createCount.get(), shiftCount.get())).containsExactly(0, 0);
+        assertThat(mutableClock.instant()).isEqualTo(Instant.parse("2026-07-30T10:00:00+03:00"));
+    }
+
     private final class CalendarApiDispatcher extends Dispatcher {
         @Override
         public MockResponse dispatch(RecordedRequest request) {
             String method = request.getMethod();
             String path = request.getPath() == null ? "" : request.getPath().split("\\?", 2)[0];
             String key = method + " " + path;
+            if (path.equals("/v1/calendar/rooms") && "GET".equals(method)) {
+                requestLog.add(key);
+                if (paginateRoomList && request.getRequestUrl().queryParameter("iteration_key") == null) {
+                    return json(200, "{\"items\":[],\"iteration_key\":\"rooms+/=\"}");
+                }
+                if (paginateRoomList) {
+                    assertThat(request.getRequestUrl().queryParameter("iteration_key")).isEqualTo("rooms+/=");
+                }
+                return json(200, """
+                        {"items":[{"room_id":"%s","email":"%s@yandex-team.ru"}]}
+                        """.formatted(ROOM_ID, ROOM));
+            }
+            if (path.equals("/v1/calendar/free-busy/rooms/search") && "POST".equals(method)) {
+                requestLog.add(key);
+                try {
+                    availabilityRequests.add(new ObjectMapper().readTree(request.getBody().readUtf8()));
+                } catch (IOException failure) {
+                    throw new AssertionError(failure);
+                }
+                if (availabilityNextPage != null && request.getRequestUrl().queryParameter("iteration_key") != null) {
+                    assertThat(request.getRequestUrl().queryParameter("iteration_key")).isEqualTo("next+/=");
+                    return json(200, availabilityNextPage);
+                }
+                return json(200, availabilityJson);
+            }
             if (path.startsWith("/v1/calendar/events") && "GET".equals(method) && path.equals("/v1/calendar/events")) {
                 requestLog.add("GET /v1/calendar/events");
                 return json(200, listEventsJson);

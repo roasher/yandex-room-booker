@@ -8,6 +8,7 @@ import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.time.LocalDateTime;
 import java.util.function.Predicate;
@@ -133,6 +134,7 @@ class CalendarPublicApiClientTest {
         lenient().when(calendarRestClient.post()).thenReturn(requestBodyUriSpec);
         lenient().when(calendarRestClient.patch()).thenReturn(requestBodyUriSpec);
         lenient().when(requestBodyUriSpec.uri(anyString())).thenReturn(requestBodySpec);
+        lenient().when(requestBodyUriSpec.uri(any(URI.class))).thenReturn(requestBodySpec);
         lenient().when(requestBodySpec.contentType(any(MediaType.class))).thenReturn(requestBodySpec);
         lenient().when(requestBodySpec.contentLength(any(Long.class))).thenReturn(requestBodySpec);
         lenient().when(requestBodySpec.header(anyString(), anyString())).thenReturn(requestBodySpec);

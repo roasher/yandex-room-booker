@@ -38,4 +38,10 @@ public interface CalendarEventGateway {
      * Lists events overlapping {@code [from, to)} for resume-after-restart discovery.
      */
     List<ExistingEvent> findEvents(LocalDateTime from, LocalDateTime to, String timeZone);
+
+    /**
+     * Lists confirmed meetings occupying the room, including other users' meetings and recurring occurrences.
+     * Temporary reservations are excluded. An unavailable or invalid response must fail rather than imply a free room.
+     */
+    List<ExistingEvent> findRoomEvents(String roomReference, LocalDateTime from, LocalDateTime to, String timeZone);
 }

@@ -1,23 +1,30 @@
 package ru.yandex.roombooker.adapter.out.client;
 
+import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.time.ZonedDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import java.util.UUID;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.jspecify.annotations.Nullable;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.http.MediaType;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
+import org.springframework.web.util.UriComponentsBuilder;
 import ru.yandex.roombooker.adapter.out.client.dto.AddRoomsToEventRequest;
 import ru.yandex.roombooker.adapter.out.client.dto.CreateEventRequest;
 import ru.yandex.roombooker.adapter.out.client.dto.CreateEventResponse;
@@ -27,6 +34,7 @@ import ru.yandex.roombooker.adapter.out.client.dto.PatchEventRequest;
 import ru.yandex.roombooker.adapter.out.client.dto.PatchEventResponse;
 import ru.yandex.roombooker.config.ApiRoomBookerProperties;
 import ru.yandex.roombooker.domain.CalendarEventGateway;
+import ru.yandex.roombooker.domain.RoomResolver;
 import ru.yandex.roombooker.domain.model.BookingRequest;
 import ru.yandex.roombooker.domain.model.CreatedEvent;
 import ru.yandex.roombooker.domain.model.ExistingEvent;
@@ -169,6 +177,82 @@ public class CalendarPublicApiClient implements CalendarEventGateway {
         }
     }
 
+    @Override
+    public List<ExistingEvent> findRoomEvents(
+            String roomReference, LocalDateTime from, LocalDateTime to, String timeZone
+    ) {
+        String roomId = resolvePublicRoomId(roomReference);
+        Map<String, String> request = Map.of(
+                "room_id", roomId,
+                "from", toQueryDateTime(from, ZoneId.of(timeZone)),
+                "to", toQueryDateTime(to, ZoneId.of(timeZone))
+        );
+        List<ExistingEvent> events = new ArrayList<>();
+        String cursor = "";
+        Set<String> seenCursors = new HashSet<>();
+        do {
+            JsonNode page = postJson(resolveOAuthToken(),
+                    pageUri("/v1/calendar/free-busy/rooms/search", cursor), request, JsonNode.class);
+            for (JsonNode item : pageItems(page)) {
+                String eventId = item.path("event_id").asText("");
+                // Reservations without event_id are temporary holds, not confirmed meetings.
+                if (eventId.isBlank()) {
+                    continue;
+                }
+                events.add(ExistingEvent.builder()
+                        .eventId(eventId)
+                        .summary("")
+                        .start(CalendarDateTimes.parse(item.path("start"), timeZone))
+                        .end(CalendarDateTimes.parse(item.path("end"), timeZone))
+                        .roomReferences(List.of(roomReference))
+                        .build());
+            }
+            cursor = nextCursor(page, seenCursors);
+        } while (!cursor.isEmpty());
+        return List.copyOf(events);
+    }
+
+    private String resolvePublicRoomId(String roomReference) {
+        try {
+            return UUID.fromString(roomReference).toString();
+        } catch (IllegalArgumentException notPublicId) {
+            // Configuration normally contains an Exchange name; the availability API requires a public UUID.
+        }
+        String roomEmail = RoomResolver.toEmail(roomReference);
+        String cursor = "";
+        Set<String> seenCursors = new HashSet<>();
+        do {
+            JsonNode page = getJson(resolveOAuthToken(), pageUri("/v1/calendar/rooms", cursor), JsonNode.class);
+            for (JsonNode room : pageItems(page)) {
+                if (roomEmail.equalsIgnoreCase(room.path("email").asText()) && room.hasNonNull("room_id")) {
+                    return room.path("room_id").asText();
+                }
+            }
+            cursor = nextCursor(page, seenCursors);
+        } while (!cursor.isEmpty());
+        throw new CalendarApiException("Cannot check availability: no public room ID found for " + roomReference);
+    }
+
+    private static String pageUri(String path, String cursor) {
+        return cursor.isEmpty() ? path : UriComponentsBuilder.fromPath(path)
+                .queryParam("iteration_key", "{cursor}").encode().buildAndExpand(cursor).toUriString();
+    }
+
+    private static JsonNode pageItems(@Nullable JsonNode page) {
+        if (page == null || !page.path("items").isArray()) {
+            throw new CalendarApiException("Calendar API returned an invalid room availability/list response");
+        }
+        return page.path("items");
+    }
+
+    private static String nextCursor(JsonNode page, Set<String> seenCursors) {
+        String cursor = page.path("iteration_key").asText("");
+        if (!cursor.isEmpty() && !seenCursors.add(cursor)) {
+            throw new CalendarApiException("Calendar API returned a repeated pagination cursor");
+        }
+        return cursor;
+    }
+
     private CreateEventRequest buildCreateEventRequest(BookingRequest request) {
         return new CreateEventRequest(
                 request.meetingName(),
@@ -221,7 +305,7 @@ public class CalendarPublicApiClient implements CalendarEventGateway {
     private <T> T getJson(String oauthToken, String uri, Class<T> responseType) {
         log.debug("Calendar API request: GET {}", uri);
         return calendarRestClient.get()
-                .uri(uri)
+                .uri(URI.create(uri))
                 .header("Authorization", "OAuth " + oauthToken)
                 .retrieve()
                 .onStatus(HttpStatusCode::isError, this::throwApiException)
@@ -233,7 +317,7 @@ public class CalendarPublicApiClient implements CalendarEventGateway {
 
         T response = jsonRequest(
                 calendarRestClient.post()
-                        .uri(uri)
+                        .uri(URI.create(uri))
                         .header("Authorization", "OAuth " + oauthToken),
                 body
         )
