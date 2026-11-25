@@ -81,7 +81,15 @@ public class CalendarPublicApiClient implements CalendarEventGateway {
             if (Integer.valueOf(401).equals(status) && !tokenAccepted) {
                 message = "OAuth token was rejected (HTTP 401). It may be expired, revoked or invalid. "
                         + "Update YANDEX_CALENDAR_OAUTH_TOKEN and restart.";
-            } else if (tokenAccepted && (Integer.valueOf(401).equals(status) || Integer.valueOf(403).equals(status))) {
+            } else if (tokenAccepted && Integer.valueOf(401).equals(status)) {
+                message = "OAuth token was accepted by Calendar events API, but room-directory access was rejected "
+                        + "(HTTP 401). The public room directory excludes yandex-team accounts at the API gateway; "
+                        + "adding OAuth scopes or regenerating the token cannot remove that restriction. "
+                        + "For corporate rooms, set ROOM_BOOKER_BOOKING_MODE=browser and configure "
+                        + "YANDEX_CALENDAR_COOKIES from an authenticated calendar.yandex-team.ru session. "
+                        + "For other account types, check room-directory endpoint access. "
+                        + "This does not establish that the token has expired.";
+            } else if (tokenAccepted && Integer.valueOf(403).equals(status)) {
                 message = "OAuth token was accepted by Calendar events API, but room-directory access was rejected "
                         + "(HTTP " + status + "). Check endpoint availability and calendar:resources.read "
                         + "or calendar:read_all permissions; this does not establish that the token has expired.";

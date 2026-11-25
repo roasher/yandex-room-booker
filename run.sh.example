@@ -2,9 +2,10 @@
 set -euo pipefail
 
 # Booking modes (ROOM_BOOKER_BOOKING_MODE):
-#   api     — Public Calendar API; needs YANDEX_CALENDAR_OAUTH_TOKEN
+#   api     — Public Calendar API; needs YANDEX_CALENDAR_OAUTH_TOKEN.
+#             Its room catalogue excludes yandex-team accounts, even with the required scopes.
 #   browser — Web UI API; needs YANDEX_CALENDAR_COOKIES (full Cookie header, like EVENTS_API_COOKIES)
-#             ckey/uid are fetched automatically. Prefer for debugging detailed errors.
+#             ckey/uid are fetched automatically. Use for corporate room availability checks.
 #
 # Each room-booker entry has one room and its own slots. See src/main/resources/rooms.yml.
 # enabled and meeting-name are set independently for every entry.
